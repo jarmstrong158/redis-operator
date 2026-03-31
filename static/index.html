@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Redis Operator</title>
+<style>
+  /* ---- Google Fonts ---- */
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  /* ---- Variables ---- */
+  :root {
+    --bg:        #0a0b0e;
+    --bg2:       #111318;
+    --bg3:       #181b22;
+    --border:    #1f2430;
+    --border2:   #2a3040;
+    --accent:    #00c8ff;
+    --accent2:   #0077ff;
+    --green:     #00e5a0;
+    --red:       #ff4060;
+    --yellow:    #ffcc00;
+    --orange:    #ff8c42;
+    --text:      #d0d8f0;
+    --text2:     #7080a0;
+    --text3:     #3a4560;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Syne', sans-serif;
+    --radius:    6px;
+    --radius2:   10px;
+    --shadow:    0 4px 24px rgba(0,0,0,0.5);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ---- Scrollbar ---- */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+  /* ---- Layout ---- */
+  #app {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 20px 40px;
+  }
+
+  /* ---- Header ---- */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 16px rgba(0,200,255,0.3);
+  }
+
+  .logo h1 {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.04em;
+    color: #fff;
+  }
+
+  .logo h1 span { color: var(--accent); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .redis-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  .redis-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text3);
+    transition: all 0.3s;
+  }
+
+  .redis-dot.up { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .redis-dot.down { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  /* ---- Panel ---- */
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius2);
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+    gap: 12px;
+  }
+
+  .panel-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .panel-title .icon {
+    color: var(--accent);
+    font-size: 15px;
+  }
+
+  .panel-body { padding: 20px; }
+
+  /* ---- Buttons ---- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+    text-decoration: none;
+  }
+
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    color: #000;
+    border-color: transparent;
+  }
+  .btn-primary:hover { filter: brightness(1.1); box-shadow: 0 0 14px rgba(0,200,255,0.3); }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--border2);
+    color: var(--text2);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,200,255,0.05); }
+
+  .btn-danger {
+    background: rgba(255,64,96,0.1);
+    border-color: rgba(255,64,96,0.3);
+    color: var(--red);
+  }
+  .btn-danger:hover { background: rgba(255,64,96,0.2); border-color: var(--red); }
+
+  .btn-warning {
+    background: rgba(255,204,0,0.08);
+    border-color: rgba(255,204,0,0.3);
+    color: var(--yellow);
+  }
+  .btn-warning:hover { background: rgba(255,204,0,0.15); border-color: var(--yellow); }
+
+  .btn-success {
+    background: rgba(0,229,160,0.08);
+    border-color: rgba(0,229,160,0.3);
+    color: var(--green);
+  }
+  .btn-success:hover { background: rgba(0,229,160,0.15); border-color: var(--green); }
+
+  .btn-sm { padding: 4px 10px; font-size: 11px; }
+
+  .btn-icon {
+    padding: 5px 8px;
+    background: transparent;
+    border-color: var(--border2);
+    color: var(--text2);
+  }
+  .btn-icon:hover { background: var(--bg3); color: var(--text); border-color: var(--border2); }
+
+  /* ---- Workers Table ---- */
+  .table-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .workers-table-wrap {
+    overflow-x: auto;
+    margin-top: 16px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead th {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text2);
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  tbody td {
+    padding: 10px 12px;
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  .worker-name {
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .task-path {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sched-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: rgba(0,119,255,0.12);
+    color: var(--accent);
+    border: 1px solid rgba(0,200,255,0.2);
+  }
+
+  .next-fire {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+  }
+
+  .remaining-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text2);
+  }
+
+  .status-paused {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--yellow);
+    font-family: var(--mono);
+  }
+
+  .row-actions { display: flex; gap: 6px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text3);
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+
+  /* ---- Add Worker Form ---- */
+  .workers-form { display: flex; flex-direction: column; gap: 16px; }
+
+  .worker-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius2);
+    padding: 18px;
+    position: relative;
+    transition: border-color 0.2s;
+  }
+
+  .worker-card:focus-within { border-color: var(--border2); }
+
+  .worker-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .worker-card-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .form-row.full { grid-template-columns: 1fr; }
+  .form-row.three { grid-template-columns: 1fr 1fr 1fr; }
+
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+
+  .form-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .form-input {
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+
+  .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,200,255,0.1); }
+  .form-input::placeholder { color: var(--text3); }
+
+  .input-with-btn {
+    display: flex;
+    gap: 6px;
+  }
+
+  .input-with-btn .form-input { flex: 1; }
+
+  /* ---- Schedule Toggle ---- */
+  .sched-toggle {
+    display: inline-flex;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 2px;
+    gap: 2px;
+    margin-bottom: 12px;
+  }
+
+  .sched-toggle-btn {
+    padding: 5px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    font-family: var(--sans);
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+  }
+
+  .sched-toggle-btn.active {
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    color: #000;
+    box-shadow: 0 0 8px rgba(0,200,255,0.3);
+  }
+
+  .sched-fields { animation: fadeIn 0.15s ease; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+  .sched-hint {
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 3px;
+    font-family: var(--mono);
+  }
+
+  /* ---- Form footer ---- */
+  .form-footer {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding-top: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* ---- Profiles ---- */
+  .profiles-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .profiles-list { margin-top: 16px; }
+
+  .profile-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+    transition: border-color 0.15s;
+  }
+
+  .profile-item:hover { border-color: var(--border2); }
+
+  .profile-name {
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .profile-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+
+  .profile-actions { display: flex; gap: 6px; }
+
+  /* ---- Debug Log ---- */
+  #log-panel {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 220px;
+    overflow-y: auto;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .log-entry { display: flex; gap: 10px; align-items: flex-start; }
+  .log-ts { color: var(--text3); white-space: nowrap; flex-shrink: 0; }
+  .log-level { font-weight: 700; white-space: nowrap; flex-shrink: 0; min-width: 48px; }
+  .log-msg { color: var(--text); white-space: pre-wrap; word-break: break-all; }
+
+  .log-level.INFO  { color: var(--accent); }
+  .log-level.OK    { color: var(--green); }
+  .log-level.FIRE  { color: var(--orange); }
+  .log-level.ERROR { color: var(--red); }
+  .log-level.PAUSE { color: var(--yellow); }
+  .log-level.DELETE{ color: var(--red); }
+
+  .log-empty { color: var(--text3); text-align: center; padding: 20px; }
+
+  .log-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .log-autoscroll-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text2);
+    cursor: pointer;
+    font-family: var(--mono);
+  }
+
+  .log-autoscroll-label input[type=checkbox] { accent-color: var(--accent); }
+
+  /* ---- Modal ---- */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(3px);
+  }
+
+  .modal-overlay.show { display: flex; }
+
+  .modal {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius2);
+    padding: 28px;
+    min-width: 340px;
+    max-width: 480px;
+    box-shadow: var(--shadow);
+    animation: modalIn 0.15s ease;
+  }
+
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+
+  .modal h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #fff;
+  }
+
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+
+  /* ---- Toast ---- */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 200;
+  }
+
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    font-size: 12px;
+    color: var(--text);
+    box-shadow: var(--shadow);
+    animation: slideIn 0.2s ease;
+    max-width: 360px;
+  }
+
+  @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+  .toast.ok    { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info  { border-left: 3px solid var(--accent); }
+
+  /* ---- Redis error banner ---- */
+  #redis-error-banner {
+    display: none;
+    background: rgba(255,64,96,0.08);
+    border: 1px solid rgba(255,64,96,0.3);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    color: #ff8090;
+    white-space: pre-wrap;
+    font-family: var(--mono);
+    line-height: 1.6;
+  }
+
+  #redis-error-banner.show { display: block; }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 640px) {
+    .form-row, .form-row.three { grid-template-columns: 1fr; }
+    .profiles-row { flex-direction: column; align-items: stretch; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      <h1>Redis <span>Operator</span></h1>
+    </div>
+    <div class="header-right">
+      <div class="redis-badge">
+        <div class="redis-dot" id="redis-dot"></div>
+        <span id="redis-status-text">Checking...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Redis error banner -->
+  <div id="redis-error-banner"></div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SECTION 1: Active Workers
+  ═══════════════════════════════════════════════════════ -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="icon">▶</span>
+        Active Workers
+        <span id="worker-count" style="color:var(--text3);font-weight:400;margin-left:4px;font-size:11px;font-family:var(--mono)"></span>
+      </div>
+      <div class="table-actions">
+        <button class="btn btn-warning btn-sm" onclick="pauseAll()">⏸ Pause All</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteAll()">✕ Delete All</button>
+      </div>
+    </div>
+    <div class="workers-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Worker Name</th>
+            <th>Task File</th>
+            <th>Schedule</th>
+            <th>Next Trigger</th>
+            <th>Remaining Today</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="workers-tbody">
+          <tr><td colspan="7" class="empty-state">No workers registered yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SECTION 2: Add Workers
+  ═══════════════════════════════════════════════════════ -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="icon">＋</span>
+        Add Workers
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="workers-form" id="worker-cards-container">
+        <!-- Worker cards injected here -->
+      </div>
+      <div class="form-footer" style="margin-top:16px;">
+        <button class="btn btn-ghost" onclick="addWorkerCard()">＋ Add Another Worker</button>
+        <button class="btn btn-primary" onclick="submitWorkers()">⚡ Register Workers</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SECTION 3: Saved Profiles
+  ═══════════════════════════════════════════════════════ -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="icon">⊞</span>
+        Saved Profiles
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="profiles-row">
+        <button class="btn btn-ghost" onclick="saveProfile()">💾 Save Current Setup</button>
+        <div class="form-group" style="min-width:220px;">
+          <label class="form-label">Load Profile</label>
+          <div class="input-with-btn">
+            <select id="profile-select" class="form-input" style="padding:7px 10px;">
+              <option value="">— select a profile —</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadSelectedProfile()">Load</button>
+          </div>
+        </div>
+      </div>
+      <div class="profiles-list" id="profiles-list">
+        <!-- profiles rendered here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SECTION 4: Debug Log
+  ═══════════════════════════════════════════════════════ -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="icon">◈</span>
+        Debug Log
+      </div>
+      <div class="log-controls">
+        <label class="log-autoscroll-label">
+          <input type="checkbox" id="autoscroll-chk" checked />
+          Auto-scroll
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="clearLogDisplay()">Clear Display</button>
+      </div>
+    </div>
+    <div class="panel-body" style="padding-top:12px;padding-bottom:12px;">
+      <div id="log-panel">
+        <div class="log-empty">No log entries yet.</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- #app -->
+
+<!-- Save Profile Modal -->
+<div class="modal-overlay" id="save-profile-modal">
+  <div class="modal">
+    <h3>Save Current Setup</h3>
+    <div class="form-group">
+      <label class="form-label">Profile Name</label>
+      <input type="text" id="profile-name-input" class="form-input"
+             placeholder="e.g. Morning Batch, Production Setup..."
+             onkeydown="if(event.key==='Enter')confirmSaveProfile()" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('save-profile-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmSaveProfile()">Save Profile</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
+let workerCardCount = 0;
+let logOffset = 0;
+let logDisplayOffset = 0;  // for clear-display
+let logEntries = [];
+
+// ═══════════════════════════════════════════════════════════════
+// Toast
+// ═══════════════════════════════════════════════════════════════
+function toast(msg, type = 'info', duration = 3500) {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), duration);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Modals
+// ═══════════════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ═══════════════════════════════════════════════════════════════
+// Redis status
+// ═══════════════════════════════════════════════════════════════
+async function checkRedisStatus() {
+  try {
+    const r = await fetch('/api/redis-status');
+    const d = await r.json();
+    const dot = document.getElementById('redis-dot');
+    const txt = document.getElementById('redis-status-text');
+    if (d.running) {
+      dot.className = 'redis-dot up';
+      txt.textContent = 'Redis running';
+    } else {
+      dot.className = 'redis-dot down';
+      txt.textContent = 'Redis offline';
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Worker Cards
+// ═══════════════════════════════════════════════════════════════
+function addWorkerCard(prefill = null) {
+  workerCardCount++;
+  const n = workerCardCount;
+  const container = document.getElementById('worker-cards-container');
+
+  const schedType = (prefill && prefill.sched_type) || 'fixed';
+  const schedVal  = (prefill && prefill.sched_value) || '';
+
+  const card = document.createElement('div');
+  card.className = 'worker-card';
+  card.id = `worker-card-${n}`;
+  card.dataset.cardNum = n;
+
+  card.innerHTML = `
+    <div class="worker-card-header">
+      <span class="worker-card-num">Worker ${n}</span>
+      ${n > 1 ? `<button class="btn btn-icon btn-sm" onclick="removeWorkerCard(${n})" title="Remove this worker">✕</button>` : ''}
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Worker Name</label>
+        <input type="text" class="form-input wc-name" placeholder="e.g. Morning Report"
+               value="${escHtml(prefill && prefill.name || '')}" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Task File Path</label>
+        <div class="input-with-btn">
+          <input type="text" class="form-input wc-path" placeholder="/absolute/path/to/task.py"
+                 value="${escHtml(prefill && prefill.task_path || '')}" />
+          <button class="btn btn-ghost btn-sm" onclick="browseFile(${n}, 'path')">Browse</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label">Schedule Type</label>
+      <div class="sched-toggle">
+        <button class="sched-toggle-btn ${schedType==='fixed'?'active':''}"
+                onclick="setSchedType(${n}, 'fixed', this)">Fixed Times</button>
+        <button class="sched-toggle-btn ${schedType==='interval'?'active':''}"
+                onclick="setSchedType(${n}, 'interval', this)">Interval</button>
+      </div>
+    </div>
+
+    <div class="sched-fields" id="sched-fields-${n}">
+      ${renderSchedFields(n, schedType, schedVal)}
+    </div>
+
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-group full">
+        <label class="form-label">Output Directory <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+        <div class="input-with-btn">
+          <input type="text" class="form-input wc-outdir" placeholder="/path/to/output/dir (optional)"
+                 value="${escHtml(prefill && prefill.output_dir || '')}" />
+          <button class="btn btn-ghost btn-sm" onclick="browseFile(${n}, 'outdir')">Browse</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Store sched_type on card element
+  card.dataset.schedType = schedType;
+  container.appendChild(card);
+}
+
+function renderSchedFields(n, type, val) {
+  if (type === 'fixed') {
+    return `
+      <div class="form-group">
+        <label class="form-label">Times (comma-separated, 24h)</label>
+        <input type="text" class="form-input wc-sched-val" placeholder="09:00, 14:30, 17:00"
+               value="${escHtml(val)}" />
+        <div class="sched-hint">e.g. 09:00, 14:30, 17:00 — fires daily at each listed time</div>
+      </div>
+    `;
+  } else {
+    const hMatch = val.match(/(\d+)h/);
+    const mMatch = val.match(/(\d+)m/);
+    const h = hMatch ? hMatch[1] : '';
+    const m = mMatch ? mMatch[1] : '';
+    return `
+      <div class="form-row three">
+        <div class="form-group">
+          <label class="form-label">Hours</label>
+          <input type="number" class="form-input wc-interval-h" placeholder="0" min="0" max="23" value="${escHtml(h)}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Minutes</label>
+          <input type="number" class="form-input wc-interval-m" placeholder="30" min="0" max="59" value="${escHtml(m)}" />
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-top:20px;">
+          <div class="sched-hint">between runs</div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function setSchedType(n, type, btn) {
+  const card = document.getElementById(`worker-card-${n}`);
+  card.dataset.schedType = type;
+  // Update toggle buttons
+  card.querySelectorAll('.sched-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Re-render fields (preserve any typed value)
+  const fieldsEl = document.getElementById(`sched-fields-${n}`);
+  fieldsEl.innerHTML = renderSchedFields(n, type, '');
+}
+
+function removeWorkerCard(n) {
+  const card = document.getElementById(`worker-card-${n}`);
+  if (card) card.remove();
+}
+
+function getCardsData() {
+  const cards = document.querySelectorAll('.worker-card');
+  const workers = [];
+  let valid = true;
+  cards.forEach(card => {
+    const name    = card.querySelector('.wc-name')?.value.trim();
+    const path    = card.querySelector('.wc-path')?.value.trim();
+    const outdir  = card.querySelector('.wc-outdir')?.value.trim() || '';
+    const type    = card.dataset.schedType || 'fixed';
+    let schedVal  = '';
+
+    if (type === 'fixed') {
+      schedVal = card.querySelector('.wc-sched-val')?.value.trim() || '';
+    } else {
+      const h = parseInt(card.querySelector('.wc-interval-h')?.value || '0') || 0;
+      const m = parseInt(card.querySelector('.wc-interval-m')?.value || '0') || 0;
+      schedVal = `${h}h ${m}m`;
+    }
+
+    if (!name || !path) {
+      toast(`Worker card missing name or path.`, 'error');
+      valid = false;
+    }
+
+    workers.push({ name, task_path: path, sched_type: type, sched_value: schedVal, output_dir: outdir });
+  });
+  return valid ? workers : null;
+}
+
+async function submitWorkers() {
+  const workers = getCardsData();
+  if (!workers || workers.length === 0) return;
+
+  try {
+    const r = await fetch('/api/workers', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(workers),
+    });
+    const d = await r.json();
+    if (d.added && d.added.length > 0) {
+      toast(`${d.added.length} worker(s) registered.`, 'ok');
+      resetWorkerForm();
+      refreshWorkers();
+    }
+    if (d.errors && d.errors.length > 0) {
+      toast(`${d.errors.length} error(s): ${d.errors[0]}`, 'error', 6000);
+    }
+  } catch(e) {
+    toast('Failed to register workers: ' + e, 'error');
+  }
+}
+
+function resetWorkerForm() {
+  workerCardCount = 0;
+  document.getElementById('worker-cards-container').innerHTML = '';
+  addWorkerCard();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// File Browse (server-side native dialog)
+// ═══════════════════════════════════════════════════════════════
+async function browseFile(cardNum, field) {
+  const mode = field === 'outdir' ? 'dir' : 'file';
+  try {
+    const r = await fetch(`/api/browse?mode=${mode}`);
+    const d = await r.json();
+    if (d.error) { toast('File picker error: ' + d.error, 'error'); return; }
+    if (!d.path) return;
+    const card = document.getElementById(`worker-card-${cardNum}`);
+    if (!card) return;
+    if (field === 'path') {
+      card.querySelector('.wc-path').value = d.path;
+    } else if (field === 'outdir') {
+      card.querySelector('.wc-outdir').value = d.path;
+    }
+  } catch(e) {
+    toast('Browse failed: ' + e, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Workers Table
+// ═══════════════════════════════════════════════════════════════
+async function refreshWorkers() {
+  try {
+    const r = await fetch('/api/workers');
+    const workers = await r.json();
+    renderWorkersTable(workers);
+    const countEl = document.getElementById('worker-count');
+    countEl.textContent = workers.length ? `(${workers.length})` : '';
+  } catch(e) {}
+}
+
+function renderWorkersTable(workers) {
+  const tbody = document.getElementById('workers-tbody');
+  if (!workers.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No workers registered yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = workers.map((w, i) => {
+    const pauseLabel = w.paused ? '▶ Resume' : '⏸ Pause';
+    const pauseClass = w.paused ? 'btn-success' : 'btn-warning';
+    const nextFire = w.paused
+      ? '<span class="status-paused">⏸ Paused</span>'
+      : `<span class="next-fire">${escHtml(w.next_trigger)}</span>`;
+    const remaining = w.paused ? '—' : `<span class="remaining-count">${w.remaining_today}</span>`;
+    const shortPath = w.task_path.length > 40
+      ? '…' + w.task_path.slice(-38)
+      : w.task_path;
+
+    return `
+      <tr>
+        <td style="color:var(--text3);font-family:var(--mono);font-size:11px;">${w.id}</td>
+        <td class="worker-name">${escHtml(w.name)}</td>
+        <td><div class="task-path" title="${escHtml(w.task_path)}">${escHtml(shortPath)}</div></td>
+        <td><span class="sched-badge">${escHtml(w.schedule_display)}</span></td>
+        <td>${nextFire}</td>
+        <td>${remaining}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id})">${pauseLabel}</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteWorker(${w.id}, '${escHtml(w.name)}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function togglePause(id) {
+  try {
+    await fetch(`/api/workers/${id}/pause`, {method:'POST'});
+    refreshWorkers();
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+async function deleteWorker(id, name) {
+  if (!confirm(`Delete worker "${name}"?`)) return;
+  try {
+    await fetch(`/api/workers/${id}`, {method:'DELETE'});
+    toast(`Worker "${name}" deleted.`, 'info');
+    refreshWorkers();
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+async function pauseAll() {
+  try {
+    await fetch('/api/workers/pause-all', {method:'POST'});
+    toast('All workers paused.', 'info');
+    refreshWorkers();
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+async function deleteAll() {
+  if (!confirm('Delete ALL workers? This cannot be undone.')) return;
+  try {
+    await fetch('/api/workers/all', {method:'DELETE'});
+    toast('All workers deleted.', 'info');
+    refreshWorkers();
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Profiles
+// ═══════════════════════════════════════════════════════════════
+async function refreshProfiles() {
+  try {
+    const r = await fetch('/api/profiles');
+    const profiles = await r.json();
+    renderProfilesList(profiles);
+    renderProfilesDropdown(profiles);
+  } catch(e) {}
+}
+
+function renderProfilesDropdown(profiles) {
+  const sel = document.getElementById('profile-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— select a profile —</option>';
+  profiles.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
+}
+
+function renderProfilesList(profiles) {
+  const list = document.getElementById('profiles-list');
+  if (!profiles.length) {
+    list.innerHTML = '<div style="color:var(--text3);font-size:12px;font-family:var(--mono);padding:10px 0;">No saved profiles yet.</div>';
+    return;
+  }
+  list.innerHTML = profiles.map(p => `
+    <div class="profile-item">
+      <div>
+        <div class="profile-name">${escHtml(p.name)}</div>
+        <div class="profile-meta">Saved ${escHtml(p.created_at || '')}</div>
+      </div>
+      <div class="profile-actions">
+        <button class="btn btn-ghost btn-sm" onclick="loadProfile(${p.id})">Load</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteProfile(${p.id}, '${escHtml(p.name)}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function saveProfile() {
+  document.getElementById('profile-name-input').value = '';
+  openModal('save-profile-modal');
+  setTimeout(() => document.getElementById('profile-name-input').focus(), 100);
+}
+
+async function confirmSaveProfile() {
+  const name = document.getElementById('profile-name-input').value.trim();
+  if (!name) { toast('Enter a profile name.', 'error'); return; }
+
+  const cards = getCardsData();
+  if (!cards) { closeModal('save-profile-modal'); return; }
+
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, config: cards }),
+    });
+    if (r.ok) {
+      toast(`Profile "${name}" saved.`, 'ok');
+      closeModal('save-profile-modal');
+      refreshProfiles();
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+async function loadSelectedProfile() {
+  const id = document.getElementById('profile-select').value;
+  if (!id) { toast('Select a profile first.', 'info'); return; }
+  await loadProfile(parseInt(id));
+}
+
+async function loadProfile(id) {
+  try {
+    const r = await fetch(`/api/profiles/${id}`);
+    const d = await r.json();
+    if (d.error) { toast('Error: ' + d.error, 'error'); return; }
+    // Reset form and populate
+    workerCardCount = 0;
+    document.getElementById('worker-cards-container').innerHTML = '';
+    d.config.forEach(w => addWorkerCard(w));
+    toast(`Profile "${d.name}" loaded.`, 'ok');
+    // Scroll to form
+    document.querySelector('.panel:nth-child(2)').scrollIntoView({behavior:'smooth'});
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+async function deleteProfile(id, name) {
+  if (!confirm(`Delete profile "${name}"?`)) return;
+  try {
+    await fetch(`/api/profiles/${id}`, {method:'DELETE'});
+    toast(`Profile "${name}" deleted.`, 'info');
+    refreshProfiles();
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Log
+// ═══════════════════════════════════════════════════════════════
+async function pollLogs() {
+  try {
+    const r = await fetch(`/api/logs?since=${logOffset}`);
+    const d = await r.json();
+    if (d.entries && d.entries.length > 0) {
+      logEntries.push(...d.entries);
+      logOffset += d.entries.length;
+      renderLogs();
+    }
+  } catch(e) {}
+}
+
+function renderLogs() {
+  const panel = document.getElementById('log-panel');
+  const displayEntries = logEntries.slice(logDisplayOffset);
+  if (!displayEntries.length) {
+    panel.innerHTML = '<div class="log-empty">No log entries yet.</div>';
+    return;
+  }
+  panel.innerHTML = displayEntries.map(e => `
+    <div class="log-entry">
+      <span class="log-ts">${escHtml(e.ts)}</span>
+      <span class="log-level ${e.level}">${e.level}</span>
+      <span class="log-msg">${escHtml(e.msg)}</span>
+    </div>
+  `).join('');
+
+  const chk = document.getElementById('autoscroll-chk');
+  if (chk && chk.checked) {
+    panel.scrollTop = panel.scrollHeight;
+  }
+}
+
+function clearLogDisplay() {
+  logDisplayOffset = logEntries.length;
+  renderLogs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Utility
+// ═══════════════════════════════════════════════════════════════
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Init & polling
+// ═══════════════════════════════════════════════════════════════
+function init() {
+  addWorkerCard();
+  refreshWorkers();
+  refreshProfiles();
+  checkRedisStatus();
+  pollLogs();
+
+  setInterval(refreshWorkers, 4000);
+  setInterval(checkRedisStatus, 8000);
+  setInterval(pollLogs, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

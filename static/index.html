@@ -1161,14 +1161,33 @@ async function confirmSaveProfile() {
   const name = document.getElementById('profile-name-input').value.trim();
   if (!name) { toast('Enter a profile name.', 'error'); return; }
 
-  const cards = getCardsData();
-  if (!cards) { closeModal('save-profile-modal'); return; }
+  let config;
+  try {
+    const wr = await fetch('/api/workers');
+    const workers = await wr.json();
+    if (!workers || workers.length === 0) {
+      toast('No active workers to save.', 'error');
+      closeModal('save-profile-modal');
+      return;
+    }
+    config = workers.map(w => ({
+      name: w.name,
+      task_path: w.task_path,
+      sched_type: w.sched_type,
+      sched_value: w.sched_value,
+      output_dir: w.output_dir || '',
+    }));
+  } catch(e) {
+    toast('Failed to fetch workers: ' + e, 'error');
+    closeModal('save-profile-modal');
+    return;
+  }
 
   try {
     const r = await fetch('/api/profiles', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ name, config: cards }),
+      body: JSON.stringify({ name, config }),
     });
     if (r.ok) {
       toast(`Profile "${name}" saved.`, 'ok');

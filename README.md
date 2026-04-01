@@ -8,7 +8,7 @@ A local web dashboard for managing scheduled Python and batch workers via Redis 
 
 - **Active Workers Panel** — live table of all running workers and chains with next trigger time and remaining runs today. Pause/resume or delete individual items, or bulk pause/delete all at once.
 - **Flexible Scheduling** — Fixed Times (e.g. `09:00, 14:30, 17:00` — fires daily at each listed time) or Interval (e.g. `2h 30m` — repeats on a loop).
-- **Task Support** — Python files (`.py` with a `run()` function), batch files (`.bat`, `.cmd`), and shell scripts (`.sh`).
+- **Task Support** — Python files (`.py` with a `run()` function), batch files (`.bat`, `.cmd`), and shell scripts (`.sh`). Interactive scripts (menus, input prompts, GUI tools) can run in a **new terminal window** via a per-worker checkbox.
 - **Run Now** — fire any worker or chain immediately outside its schedule. Logged with a purple MANUAL tag in the debug panel.
 - **Task History** — last 10 runs per worker/chain stored in SQLite. A colored dot on each row (green = last run OK, red = failed, grey = no runs yet) opens the history modal with timestamps, duration, trigger type, and error details.
 - **Built-in Templates** — five template types that generate and manage stdlib-only Python scripts: Folder Backup, File Cleanup, Folder Watcher, Uptime Check, Open URL.

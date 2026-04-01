@@ -385,6 +385,8 @@ def init_db():
             conn.execute("ALTER TABLE workers ADD COLUMN group_id INTEGER DEFAULT NULL")
         if "requirements" not in existing_cols:
             conn.execute("ALTER TABLE workers ADD COLUMN requirements TEXT DEFAULT ''")
+        if "new_console" not in existing_cols:
+            conn.execute("ALTER TABLE workers ADD COLUMN new_console INTEGER DEFAULT 0")
 
         # ── V2: task chains ────────────────────────────────────────────────
         conn.execute("""
@@ -494,7 +496,8 @@ def _last_run_status(worker_id=None, chain_id=None):
         return None
     return "ok" if row["success"] else "error"
 
-def _run_script(task_path: str, output_dir: str = "") -> subprocess.CompletedProcess:
+def _run_script(task_path: str, output_dir: str = "",
+                new_console: bool = False) -> subprocess.CompletedProcess:
     """Run a script file as a subprocess and return the result."""
     ext = Path(task_path).suffix.lower()
     if ext == ".py":
@@ -503,15 +506,25 @@ def _run_script(task_path: str, output_dir: str = "") -> subprocess.CompletedPro
         cmd = [task_path]
     else:
         raise ValueError(f"Unsupported file type: {ext}")
+    cwd = output_dir or os.path.dirname(task_path) or str(BASE_DIR)
+    if new_console and sys.platform == "win32":
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        proc.wait()
+        # Return a minimal CompletedProcess-like object
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout="", stderr="")
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
-        cwd=output_dir or os.path.dirname(task_path) or str(BASE_DIR),
+        cwd=cwd,
     )
 
 def _task_runner(worker_id: int, task_path: str, output_dir: str,
-                 trigger_type: str = "scheduled"):
+                 trigger_type: str = "scheduled", new_console: bool = False):
     """Execute a task file as a subprocess.
     On ModuleNotFoundError, auto-installs the missing package and retries once."""
     log_level = "MANUAL" if trigger_type == "manual" else "FIRE"
@@ -521,14 +534,14 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
     success = False
     basename = os.path.basename(task_path)
     try:
-        result = _run_script(task_path, output_dir)
+        result = _run_script(task_path, output_dir, new_console=new_console)
         if result.returncode != 0:
             stderr = result.stderr.strip()
             if "ModuleNotFoundError" in stderr or "No module named" in stderr:
                 missing = _extract_missing_module(stderr)
                 if missing and _pip_install([missing], context=f"Worker #{worker_id}"):
                     add_log("INFO", f"Worker #{worker_id} — retrying after install...")
-                    result = _run_script(task_path, output_dir)
+                    result = _run_script(task_path, output_dir, new_console=new_console)
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
         if result.stdout.strip():
@@ -545,7 +558,8 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
                     success=success, duration_ms=duration_ms, error_msg=error_msg)
 
 def register_worker_jobs(worker_id: int, task_path: str, sched_type: str,
-                         sched_value: str, output_dir: str, paused: bool = False):
+                         sched_value: str, output_dir: str, paused: bool = False,
+                         new_console: bool = False):
     """Add APScheduler jobs for a worker. Remove existing ones first."""
     # Remove any existing jobs for this worker
     for job in scheduler.get_jobs():
@@ -563,6 +577,7 @@ def register_worker_jobs(worker_id: int, task_path: str, sched_type: str,
             trigger=trigger,
             id=job_id,
             args=[worker_id, task_path, output_dir],
+            kwargs={"new_console": new_console},
             replace_existing=True,
             misfire_grace_time=60,
         )
@@ -809,6 +824,7 @@ def add_workers():
         sched_value = w.get("sched_value", "1h").strip()
         output_dir = w.get("output_dir", "").strip()
         requirements = w.get("requirements", "").strip()
+        new_console = bool(w.get("new_console", False))
 
         if not name or not task_path:
             errors.append(f"Worker missing name or task path: {w}")
@@ -820,14 +836,15 @@ def add_workers():
 
         with get_db() as conn:
             cur = conn.execute(
-                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements) VALUES (?,?,?,?,?,?)",
-                (name, task_path, sched_type, sched_value, output_dir, requirements),
+                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements, new_console) VALUES (?,?,?,?,?,?,?)",
+                (name, task_path, sched_type, sched_value, output_dir, requirements, int(new_console)),
             )
             worker_id = cur.lastrowid
             conn.commit()
 
         _install_for_worker(name, task_path, requirements)
-        register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir)
+        register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir,
+                             new_console=new_console)
         add_log("INFO", f"Worker '{name}' registered (id={worker_id}).")
         added.append(worker_id)
 
@@ -856,17 +873,18 @@ def update_worker(worker_id):
 
     group_id = data.get("group_id", row["group_id"])  # preserve existing if not provided
     requirements = data.get("requirements", row["requirements"] or "").strip()
+    new_console = bool(data.get("new_console", bool(row["new_console"])))
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=? WHERE id=?",
-            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, worker_id),
+            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=?, new_console=? WHERE id=?",
+            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, int(new_console), worker_id),
         )
         conn.commit()
 
     _install_for_worker(name, task_path, requirements)
     register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir,
-                         paused=bool(row["paused"]))
+                         paused=bool(row["paused"]), new_console=new_console)
     add_log("INFO", f"Worker '{name}' updated (id={worker_id}).")
     return jsonify({"ok": True})
 
@@ -909,7 +927,7 @@ def run_worker_now(worker_id):
     t = threading.Thread(
         target=_task_runner,
         args=(worker_id, row["task_path"], row["output_dir"]),
-        kwargs={"trigger_type": "manual"},
+        kwargs={"trigger_type": "manual", "new_console": bool(row["new_console"])},
         daemon=True,
     )
     t.start()
@@ -1389,7 +1407,8 @@ def restore_workers():
     for r in rows:
         try:
             register_worker_jobs(r["id"], r["task_path"], r["sched_type"],
-                                 r["sched_value"], r["output_dir"])
+                                 r["sched_value"], r["output_dir"],
+                                 new_console=bool(r["new_console"]))
             add_log("INFO", f"Worker '{r['name']}' restored from DB.")
         except Exception as e:
             add_log("ERROR", f"Failed to restore worker '{r['name']}': {e}")

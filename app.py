@@ -5,6 +5,7 @@ Flask + APScheduler + SQLite + Redis
 
 import os
 import sys
+import ast
 import json
 import time
 import subprocess
@@ -15,6 +16,7 @@ import sqlite3
 import socket
 import signal
 import atexit
+import sysconfig
 from collections import deque
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -33,6 +35,92 @@ DB_PATH = BASE_DIR / "redis_operator.db"
 STATIC_DIR = BASE_DIR / "static"
 ENV_PATH = BASE_DIR / ".env"
 TEMPLATES_DIR = BASE_DIR / "templates" / "generated"
+
+# ---------------------------------------------------------------------------
+# Dependency management
+# ---------------------------------------------------------------------------
+def _stdlib_modules() -> set:
+    """Return the set of stdlib module names for the running Python."""
+    try:
+        return sys.stdlib_module_names  # Python 3.10+
+    except AttributeError:
+        import sysconfig as _sc
+        stdlib_path = _sc.get_paths()["stdlib"]
+        names = set()
+        for p in [stdlib_path, sysconfig.get_paths().get("platstdlib", "")]:
+            try:
+                for f in os.listdir(p):
+                    names.add(f.split(".")[0])
+            except OSError:
+                pass
+        return names
+
+_STDLIB = None
+
+def _is_stdlib(module_name: str) -> bool:
+    global _STDLIB
+    if _STDLIB is None:
+        _STDLIB = _stdlib_modules()
+    return module_name.split(".")[0] in _STDLIB
+
+def _get_missing_modules(script_path: str) -> list:
+    """Parse a .py file for imports and return any that aren't installed."""
+    missing = []
+    try:
+        with open(script_path, encoding="utf-8") as f:
+            source = f.read()
+        tree = ast.parse(source, filename=script_path)
+    except Exception:
+        return missing
+
+    top_level = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top_level.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                top_level.add(node.module.split(".")[0])
+
+    for mod in top_level:
+        if _is_stdlib(mod):
+            continue
+        try:
+            importlib.util.find_spec(mod)
+        except (ModuleNotFoundError, ValueError):
+            missing.append(mod)
+        else:
+            if importlib.util.find_spec(mod) is None:
+                missing.append(mod)
+
+    return missing
+
+def _pip_install(packages: list, context: str = "") -> bool:
+    """Install packages via pip. Logs result. Returns True on success."""
+    if not packages:
+        return True
+    pkg_list = ", ".join(packages)
+    add_log("INFO", f"Auto-installing: {pkg_list}{' for ' + context if context else ''}")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet"] + packages,
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            add_log("OK", f"Installed: {pkg_list}")
+            return True
+        else:
+            add_log("ERROR", f"pip install failed for {pkg_list}:\n{result.stderr.strip()}")
+            return False
+    except Exception as e:
+        add_log("ERROR", f"pip install exception: {e}")
+        return False
+
+def _extract_missing_module(tb: str) -> str:
+    """Pull the module name out of a ModuleNotFoundError traceback."""
+    import re
+    m = re.search(r"No module named '([^']+)'", tb)
+    return m.group(1).split(".")[0] if m else ""
 
 # ---------------------------------------------------------------------------
 # Template script generators
@@ -291,10 +379,12 @@ def init_db():
             )
         """)
 
-        # Migrate workers table: add group_id if missing
+        # Migrate workers table: add missing columns
         existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(workers)")}
         if "group_id" not in existing_cols:
             conn.execute("ALTER TABLE workers ADD COLUMN group_id INTEGER DEFAULT NULL")
+        if "requirements" not in existing_cols:
+            conn.execute("ALTER TABLE workers ADD COLUMN requirements TEXT DEFAULT ''")
 
         # ── V2: task chains ────────────────────────────────────────────────
         conn.execute("""
@@ -404,22 +494,37 @@ def _last_run_status(worker_id=None, chain_id=None):
         return None
     return "ok" if row["success"] else "error"
 
+def _run_py_task(task_path: str):
+    """Import and execute a .py task file in-process."""
+    spec = importlib.util.spec_from_file_location("_task", task_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if hasattr(mod, "run"):
+        mod.run()
+
 def _task_runner(worker_id: int, task_path: str, output_dir: str,
                  trigger_type: str = "scheduled"):
-    """Execute a task file. Supports .py and .bat/.sh scripts."""
+    """Execute a task file. Supports .py and .bat/.sh scripts.
+    On ModuleNotFoundError, auto-installs the missing package and retries once."""
     log_level = "MANUAL" if trigger_type == "manual" else "FIRE"
     add_log(log_level, f"Worker #{worker_id} fired — {os.path.basename(task_path)}")
     t0 = time.time()
     error_msg = ""
     success = False
+    basename = os.path.basename(task_path)
     try:
         ext = Path(task_path).suffix.lower()
         if ext == ".py":
-            spec = importlib.util.spec_from_file_location("_task", task_path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            if hasattr(mod, "run"):
-                mod.run()
+            try:
+                _run_py_task(task_path)
+            except ModuleNotFoundError:
+                tb = traceback.format_exc()
+                missing = _extract_missing_module(tb)
+                if missing and _pip_install([missing], context=f"Worker #{worker_id}"):
+                    add_log("INFO", f"Worker #{worker_id} — retrying after install...")
+                    _run_py_task(task_path)
+                else:
+                    raise
         elif ext in (".bat", ".sh", ".cmd"):
             result = subprocess.run(
                 [task_path],
@@ -432,11 +537,11 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
         else:
             raise ValueError(f"Unsupported file type: {ext}")
         success = True
-        add_log("OK", f"Worker #{worker_id} completed — {os.path.basename(task_path)}")
+        add_log("OK", f"Worker #{worker_id} completed — {basename}")
     except Exception:
         tb = traceback.format_exc()
         error_msg = tb
-        add_log("ERROR", f"Worker #{worker_id} FAILED — {os.path.basename(task_path)}\n{tb}")
+        add_log("ERROR", f"Worker #{worker_id} FAILED — {basename}\n{tb}")
     finally:
         duration_ms = int((time.time() - t0) * 1000)
         _record_run(worker_id=worker_id, trigger_type=trigger_type,
@@ -539,6 +644,15 @@ def _chain_runner(chain_id: int, trigger_type: str = "scheduled"):
                     [sys.executable, task_path],
                     capture_output=True, text=True,
                 )
+                # Auto-install missing module and retry once
+                if result.returncode != 0 and "ModuleNotFoundError" in result.stderr:
+                    missing = _extract_missing_module(result.stderr)
+                    if missing and _pip_install([missing], context=f"Chain '{name}' step {i}"):
+                        add_log("INFO", f"Chain '{name}' — step {i} retrying after install...")
+                        result = subprocess.run(
+                            [sys.executable, task_path],
+                            capture_output=True, text=True,
+                        )
             elif ext in (".bat", ".sh", ".cmd"):
                 result = subprocess.run(
                     [task_path], capture_output=True, text=True,
@@ -654,6 +768,7 @@ def list_workers():
             "sched_type": r["sched_type"],
             "sched_value": r["sched_value"],
             "output_dir": r["output_dir"],
+            "requirements": r["requirements"] or "",
             "paused": bool(r["paused"]),
             "group_id": r["group_id"],
             "next_trigger": next_trigger,
@@ -669,6 +784,21 @@ def _schedule_display(sched_type, sched_value):
         return f"Fixed: {sched_value}"
     return f"Every {sched_value}"
 
+def _install_for_worker(name: str, task_path: str, requirements: str):
+    """Install declared requirements + auto-detected missing imports."""
+    to_install = []
+    # Declared requirements from the user
+    declared = [p.strip() for p in requirements.split(",") if p.strip()]
+    to_install.extend(declared)
+    # Auto-detected missing imports (only for .py files that exist)
+    if task_path.endswith(".py") and os.path.isfile(task_path):
+        missing = _get_missing_modules(task_path)
+        for m in missing:
+            if m not in to_install:
+                to_install.append(m)
+    if to_install:
+        _pip_install(to_install, context=f"worker '{name}'")
+
 @app.route("/api/workers", methods=["POST"])
 def add_workers():
     data = request.get_json()
@@ -681,6 +811,7 @@ def add_workers():
         sched_type = w.get("sched_type", "interval")
         sched_value = w.get("sched_value", "1h").strip()
         output_dir = w.get("output_dir", "").strip()
+        requirements = w.get("requirements", "").strip()
 
         if not name or not task_path:
             errors.append(f"Worker missing name or task path: {w}")
@@ -692,12 +823,13 @@ def add_workers():
 
         with get_db() as conn:
             cur = conn.execute(
-                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir) VALUES (?,?,?,?,?)",
-                (name, task_path, sched_type, sched_value, output_dir),
+                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements) VALUES (?,?,?,?,?,?)",
+                (name, task_path, sched_type, sched_value, output_dir, requirements),
             )
             worker_id = cur.lastrowid
             conn.commit()
 
+        _install_for_worker(name, task_path, requirements)
         register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir)
         add_log("INFO", f"Worker '{name}' registered (id={worker_id}).")
         added.append(worker_id)
@@ -726,14 +858,16 @@ def update_worker(worker_id):
         output_dir = os.path.abspath(output_dir)
 
     group_id = data.get("group_id", row["group_id"])  # preserve existing if not provided
+    requirements = data.get("requirements", row["requirements"] or "").strip()
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=? WHERE id=?",
-            (name, task_path, sched_type, sched_value, output_dir, group_id, worker_id),
+            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=? WHERE id=?",
+            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, worker_id),
         )
         conn.commit()
 
+    _install_for_worker(name, task_path, requirements)
     register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir,
                          paused=bool(row["paused"]))
     add_log("INFO", f"Worker '{name}' updated (id={worker_id}).")

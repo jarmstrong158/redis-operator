@@ -1101,6 +1101,11 @@
         </select>
       </div>
     </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Requirements <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+      <input type="text" id="edit-requirements" class="form-input" placeholder="e.g. selenium, pandas, webdriver-manager" />
+      <div class="sched-hint">Comma-separated packages — re-installed on save</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('edit-worker-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmEditWorker()">Save Changes</button>
@@ -1295,13 +1300,19 @@ function addWorkerCard(prefill = null) {
     </div>
 
     <div class="form-row" style="margin-top:12px;">
-      <div class="form-group full">
+      <div class="form-group">
         <label class="form-label">Output Directory <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
         <div class="input-with-btn">
           <input type="text" class="form-input wc-outdir" placeholder="/path/to/output/dir (optional)"
                  value="${escHtml(prefill && prefill.output_dir || '')}" />
           <button class="btn btn-ghost btn-sm" onclick="browseFile(${n}, 'outdir')">Browse</button>
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Requirements <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+        <input type="text" class="form-input wc-requirements" placeholder="e.g. selenium, pandas"
+               value="${escHtml(prefill && prefill.requirements || '')}" />
+        <div class="sched-hint">Comma-separated packages — auto-installed on registration</div>
       </div>
     </div>
   `;
@@ -1368,6 +1379,7 @@ function getCardsData() {
     const name    = card.querySelector('.wc-name')?.value.trim();
     const path    = card.querySelector('.wc-path')?.value.trim();
     const outdir  = card.querySelector('.wc-outdir')?.value.trim() || '';
+    const reqs    = card.querySelector('.wc-requirements')?.value.trim() || '';
     const type    = card.dataset.schedType || 'fixed';
     let schedVal  = '';
 
@@ -1384,7 +1396,7 @@ function getCardsData() {
       valid = false;
     }
 
-    workers.push({ name, task_path: path, sched_type: type, sched_value: schedVal, output_dir: outdir });
+    workers.push({ name, task_path: path, sched_type: type, sched_value: schedVal, output_dir: outdir, requirements: reqs });
   });
   return valid ? workers : null;
 }
@@ -2132,6 +2144,7 @@ function editWorker(id) {
   document.getElementById('edit-name').value = w.name;
   document.getElementById('edit-path').value = w.task_path;
   document.getElementById('edit-outdir').value = w.output_dir || '';
+  document.getElementById('edit-requirements').value = w.requirements || '';
   setEditSchedType(w.sched_type, null, w.sched_value);
   // Populate and set group dropdown
   populateGroupDropdowns();
@@ -2206,6 +2219,7 @@ async function confirmEditWorker() {
   }
 
   const groupId = document.getElementById('edit-group')?.value || null;
+  const requirements = document.getElementById('edit-requirements')?.value.trim() || '';
 
   try {
     const r = await fetch(`/api/workers/${editingWorkerId}`, {
@@ -2213,7 +2227,8 @@ async function confirmEditWorker() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({name, task_path: path, sched_type: editSchedType,
                             sched_value: schedVal, output_dir: outdir,
-                            group_id: groupId ? parseInt(groupId) : null}),
+                            group_id: groupId ? parseInt(groupId) : null,
+                            requirements}),
     });
     const d = await r.json();
     if (r.ok) {

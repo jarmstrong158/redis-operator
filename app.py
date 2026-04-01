@@ -924,13 +924,18 @@ def toggle_pause(worker_id):
 
 @app.route("/api/workers/<int:worker_id>/history", methods=["GET"])
 def get_worker_history(worker_id):
+    limit  = request.args.get("limit",  100, type=int)
+    offset = request.args.get("offset", 0,   type=int)
     with get_db() as conn:
         rows = conn.execute(
             """SELECT triggered_at, trigger_type, success, duration_ms, error_msg
-               FROM run_history WHERE worker_id=? ORDER BY id DESC LIMIT 10""",
-            (worker_id,),
+               FROM run_history WHERE worker_id=? ORDER BY id DESC LIMIT ? OFFSET ?""",
+            (worker_id, limit, offset),
         ).fetchall()
-    return jsonify([dict(r) for r in rows])
+        total = conn.execute(
+            "SELECT COUNT(*) FROM run_history WHERE worker_id=?", (worker_id,)
+        ).fetchone()[0]
+    return jsonify({"rows": [dict(r) for r in rows], "total": total, "offset": offset, "limit": limit})
 
 @app.route("/api/workers/<int:worker_id>/run-now", methods=["POST"])
 def run_worker_now(worker_id):
@@ -1312,13 +1317,18 @@ def run_chain_now(chain_id):
 
 @app.route("/api/chains/<int:chain_id>/history", methods=["GET"])
 def get_chain_history(chain_id):
+    limit  = request.args.get("limit",  100, type=int)
+    offset = request.args.get("offset", 0,   type=int)
     with get_db() as conn:
         rows = conn.execute(
             """SELECT triggered_at, trigger_type, success, duration_ms, error_msg
-               FROM run_history WHERE chain_id=? ORDER BY id DESC LIMIT 10""",
-            (chain_id,),
+               FROM run_history WHERE chain_id=? ORDER BY id DESC LIMIT ? OFFSET ?""",
+            (chain_id, limit, offset),
         ).fetchall()
-    return jsonify([dict(r) for r in rows])
+        total = conn.execute(
+            "SELECT COUNT(*) FROM run_history WHERE chain_id=?", (chain_id,)
+        ).fetchone()[0]
+    return jsonify({"rows": [dict(r) for r in rows], "total": total, "offset": offset, "limit": limit})
 
 # --- AI Analysis ---
 @app.route("/api/api-key-status", methods=["GET"])

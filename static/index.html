@@ -1052,10 +1052,24 @@
 
 <!-- History Modal -->
 <div class="modal-overlay" id="history-modal">
-  <div class="modal" style="min-width:560px;max-width:680px;">
+  <div class="modal" style="min-width:600px;max-width:720px;">
     <h3 id="history-modal-title">Run History</h3>
-    <div id="history-modal-body" style="margin-top:4px;max-height:360px;overflow-y:auto;"></div>
-    <div class="modal-actions">
+    <div style="display:flex;gap:10px;align-items:center;margin:10px 0 8px;flex-wrap:wrap;">
+      <div style="display:inline-flex;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);padding:2px;gap:2px;">
+        <button class="sched-toggle-btn active" id="hist-filter-all"    onclick="setHistFilter('all',this)">All</button>
+        <button class="sched-toggle-btn"         id="hist-filter-ok"     onclick="setHistFilter('ok',this)">Success</button>
+        <button class="sched-toggle-btn"         id="hist-filter-error"  onclick="setHistFilter('error',this)">Failed</button>
+      </div>
+      <input type="date" id="hist-date-from" class="form-input" style="max-width:140px;padding:5px 8px;font-size:11px;"
+             oninput="renderHistoryTable()" title="From date" />
+      <input type="date" id="hist-date-to"   class="form-input" style="max-width:140px;padding:5px 8px;font-size:11px;"
+             oninput="renderHistoryTable()" title="To date" />
+      <span id="hist-count" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-left:auto;"></span>
+    </div>
+    <div id="history-modal-body" style="margin-top:4px;max-height:400px;overflow-y:auto;"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+      <button id="hist-load-more" class="btn btn-ghost btn-sm" onclick="loadMoreHistory()" style="display:none;">Load more…</button>
+      <div style="flex:1;"></div>
       <button class="btn btn-ghost" onclick="closeModal('history-modal')">Close</button>
     </div>
   </div>
@@ -2102,62 +2116,103 @@ async function confirmTemplate() {
 // ═══════════════════════════════════════════════════════════════
 // Task History
 // ═══════════════════════════════════════════════════════════════
+let historyRows = [];
+let historyFilter = 'all';
+let historyEntityType = '';
+let historyEntityId = null;
+let historyTotal = 0;
+const HIST_PAGE = 100;
+
 async function openHistory(id, entityType, name) {
+  historyEntityId = id;
+  historyEntityType = entityType;
+  historyRows = [];
+  historyFilter = 'all';
   document.getElementById('history-modal-title').textContent = `Run History — ${name}`;
-  document.getElementById('history-modal-body').innerHTML =
-    '<div class="hist-empty">Loading…</div>';
+  document.getElementById('history-modal-body').innerHTML = '<div class="hist-empty">Loading…</div>';
+  document.getElementById('hist-date-from').value = '';
+  document.getElementById('hist-date-to').value = '';
+  document.getElementById('hist-load-more').style.display = 'none';
+  document.querySelectorAll('#history-modal .sched-toggle-btn').forEach((b,i) => b.classList.toggle('active', i===0));
   openModal('history-modal');
+  await fetchHistoryPage(0);
+}
 
-  const endpoint = entityType === 'chain'
-    ? `/api/chains/${id}/history`
-    : `/api/workers/${id}/history`;
-
+async function fetchHistoryPage(offset) {
+  const endpoint = historyEntityType === 'chain'
+    ? `/api/chains/${historyEntityId}/history`
+    : `/api/workers/${historyEntityId}/history`;
   try {
-    const r = await fetch(endpoint);
-    const rows = await r.json();
-    const body = document.getElementById('history-modal-body');
-    if (!rows.length) {
-      body.innerHTML = '<div class="hist-empty">No runs recorded yet.</div>';
-      return;
-    }
-    body.innerHTML = `
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Triggered By</th>
-            <th>Status</th>
-            <th>Duration</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(r => {
-            const status = r.success
-              ? '<span class="hist-badge ok">✓ Success</span>'
-              : '<span class="hist-badge error">✕ Failed</span>';
-            const trigger = r.trigger_type === 'manual'
-              ? '<span class="hist-trigger-manual">Manual</span>'
-              : '<span class="hist-trigger-scheduled">Scheduled</span>';
-            const dur = r.duration_ms < 1000
-              ? `${r.duration_ms}ms`
-              : `${(r.duration_ms / 1000).toFixed(1)}s`;
-            const errRow = (!r.success && r.error_msg)
-              ? `<tr><td colspan="4" style="padding:4px 10px 10px;color:var(--red);font-size:10px;white-space:pre-wrap;word-break:break-all;">${escHtml(r.error_msg.slice(0,400))}</td></tr>`
-              : '';
-            return `
-              <tr>
-                <td>${escHtml(r.triggered_at)}</td>
-                <td>${trigger}</td>
-                <td>${status}</td>
-                <td>${dur}</td>
-              </tr>${errRow}`;
-          }).join('')}
-        </tbody>
-      </table>`;
+    const r = await fetch(`${endpoint}?limit=${HIST_PAGE}&offset=${offset}`);
+    const d = await r.json();
+    historyRows.push(...d.rows);
+    historyTotal = d.total;
+    const loadMoreBtn = document.getElementById('hist-load-more');
+    loadMoreBtn.style.display = historyRows.length < historyTotal ? 'inline-flex' : 'none';
+    renderHistoryTable();
   } catch(e) {
     document.getElementById('history-modal-body').innerHTML =
       `<div class="hist-empty">Failed to load history: ${escHtml(String(e))}</div>`;
   }
+}
+
+async function loadMoreHistory() {
+  await fetchHistoryPage(historyRows.length);
+}
+
+function setHistFilter(f, btn) {
+  historyFilter = f;
+  document.querySelectorAll('#history-modal .sched-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistoryTable();
+}
+
+function renderHistoryTable() {
+  const dateFrom = document.getElementById('hist-date-from').value;
+  const dateTo   = document.getElementById('hist-date-to').value;
+
+  let rows = historyRows;
+  if (historyFilter === 'ok')    rows = rows.filter(r => r.success);
+  if (historyFilter === 'error') rows = rows.filter(r => !r.success);
+  if (dateFrom) rows = rows.filter(r => r.triggered_at >= dateFrom);
+  if (dateTo)   rows = rows.filter(r => r.triggered_at <= dateTo + ' 23:59:59');
+
+  document.getElementById('hist-count').textContent =
+    `${rows.length} shown / ${historyTotal} total`;
+
+  const body = document.getElementById('history-modal-body');
+  if (!rows.length) {
+    body.innerHTML = '<div class="hist-empty">No matching runs.</div>';
+    return;
+  }
+  body.innerHTML = `
+    <table class="history-table">
+      <thead>
+        <tr><th>Time</th><th>Triggered By</th><th>Status</th><th>Duration</th></tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => {
+          const status = r.success
+            ? '<span class="hist-badge ok">✓ Success</span>'
+            : '<span class="hist-badge error">✕ Failed</span>';
+          const trigger = r.trigger_type === 'manual'
+            ? '<span class="hist-trigger-manual">Manual</span>'
+            : '<span class="hist-trigger-scheduled">Scheduled</span>';
+          const dur = r.duration_ms < 1000
+            ? `${r.duration_ms}ms`
+            : `${(r.duration_ms / 1000).toFixed(1)}s`;
+          const errRow = (!r.success && r.error_msg)
+            ? `<tr><td colspan="4" style="padding:4px 10px 10px;color:var(--red);font-size:10px;white-space:pre-wrap;word-break:break-all;">${escHtml(r.error_msg.slice(0,400))}</td></tr>`
+            : '';
+          return `<tr>
+            <td>${escHtml(r.triggered_at)}</td>
+            <td>${trigger}</td>
+            <td>${status}</td>
+            <td>${dur}</td>
+          </tr>${errRow}`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 // ═══════════════════════════════════════════════════════════════

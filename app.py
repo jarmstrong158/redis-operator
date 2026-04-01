@@ -727,10 +727,12 @@ def update_worker(worker_id):
     if output_dir and not os.path.isabs(output_dir):
         output_dir = os.path.abspath(output_dir)
 
+    group_id = data.get("group_id", row["group_id"])  # preserve existing if not provided
+
     with get_db() as conn:
         conn.execute(
-            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=? WHERE id=?",
-            (name, task_path, sched_type, sched_value, output_dir, worker_id),
+            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=? WHERE id=?",
+            (name, task_path, sched_type, sched_value, output_dir, group_id, worker_id),
         )
         conn.commit()
 
@@ -895,6 +897,101 @@ def create_from_template():
     add_log("INFO", f"Worker '{worker_name}' created from template '{template_type}' (id={worker_id}).")
     return jsonify({"ok": True, "worker_id": worker_id}), 201
 
+# --- Groups ---
+@app.route("/api/groups", methods=["GET"])
+def list_groups():
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM groups ORDER BY order_index, id").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/groups", methods=["POST"])
+def create_group():
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Group name required"}), 400
+    with get_db() as conn:
+        try:
+            cur = conn.execute("INSERT INTO groups (name) VALUES (?)", (name,))
+            group_id = cur.lastrowid
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({"error": f"Group '{name}' already exists"}), 409
+    add_log("INFO", f"Group '{name}' created (id={group_id}).")
+    return jsonify({"ok": True, "group_id": group_id}), 201
+
+@app.route("/api/groups/<int:group_id>", methods=["PUT"])
+def update_group(group_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM groups WHERE id=?", (group_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Group name required"}), 400
+    with get_db() as conn:
+        try:
+            conn.execute("UPDATE groups SET name=? WHERE id=?", (name, group_id))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({"error": f"Group '{name}' already exists"}), 409
+    return jsonify({"ok": True})
+
+@app.route("/api/groups/<int:group_id>", methods=["DELETE"])
+def delete_group(group_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT name FROM groups WHERE id=?", (group_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        # Unassign workers and chains from this group
+        conn.execute("UPDATE workers SET group_id=NULL WHERE group_id=?", (group_id,))
+        conn.execute("UPDATE chains SET group_id=NULL WHERE group_id=?", (group_id,))
+        conn.execute("DELETE FROM groups WHERE id=?", (group_id,))
+        conn.commit()
+    add_log("DELETE", f"Group '{row['name']}' deleted.")
+    return jsonify({"ok": True})
+
+@app.route("/api/groups/<int:group_id>/assign", methods=["POST"])
+def assign_to_group(group_id):
+    """Assign a worker or chain to a group. Pass group_id=null to unassign."""
+    data = request.get_json()
+    entity_type = data.get("entity_type", "worker")
+    entity_id   = data.get("entity_id")
+    if entity_id is None:
+        return jsonify({"error": "entity_id required"}), 400
+    with get_db() as conn:
+        if entity_type == "chain":
+            conn.execute("UPDATE chains SET group_id=? WHERE id=?", (group_id, entity_id))
+        else:
+            conn.execute("UPDATE workers SET group_id=? WHERE id=?", (group_id, entity_id))
+        conn.commit()
+    return jsonify({"ok": True})
+
+@app.route("/api/workers/<int:worker_id>/assign-group", methods=["POST"])
+def assign_worker_group(worker_id):
+    data = request.get_json()
+    group_id = data.get("group_id")  # may be None to unassign
+    with get_db() as conn:
+        row = conn.execute("SELECT name FROM workers WHERE id=?", (worker_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        conn.execute("UPDATE workers SET group_id=? WHERE id=?", (group_id, worker_id))
+        conn.commit()
+    return jsonify({"ok": True})
+
+@app.route("/api/chains/<int:chain_id>/assign-group", methods=["POST"])
+def assign_chain_group(chain_id):
+    data = request.get_json()
+    group_id = data.get("group_id")  # may be None to unassign
+    with get_db() as conn:
+        row = conn.execute("SELECT name FROM chains WHERE id=?", (chain_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        conn.execute("UPDATE chains SET group_id=? WHERE id=?", (group_id, chain_id))
+        conn.commit()
+    return jsonify({"ok": True})
+
 # --- Chains ---
 @app.route("/api/chains", methods=["GET"])
 def list_chains():
@@ -980,10 +1077,12 @@ def update_chain(chain_id):
     if not name:
         return jsonify({"error": "Chain name required"}), 400
 
+    group_id = data.get("group_id", row["group_id"])  # preserve existing if not provided
+
     with get_db() as conn:
         conn.execute(
-            "UPDATE chains SET name=?, sched_type=?, sched_value=?, stop_on_failure=? WHERE id=?",
-            (name, sched_type, sched_value, stop_on_failure, chain_id),
+            "UPDATE chains SET name=?, sched_type=?, sched_value=?, stop_on_failure=?, group_id=? WHERE id=?",
+            (name, sched_type, sched_value, stop_on_failure, group_id, chain_id),
         )
         conn.execute("DELETE FROM chain_steps WHERE chain_id=?", (chain_id,))
         for i, step in enumerate(steps):

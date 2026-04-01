@@ -735,6 +735,63 @@
     cursor: not-allowed;
   }
 
+  /* ---- Worker Groups ---- */
+  .group-header-row td {
+    background: var(--bg3);
+    border-top: 1px solid var(--border2);
+    border-bottom: 1px solid var(--border2);
+    padding: 7px 12px;
+  }
+
+  .group-header-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .group-collapse-btn {
+    background: none;
+    border: none;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    line-height: 1;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+
+  .group-collapse-btn.collapsed { transform: rotate(-90deg); }
+
+  .group-name-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--orange);
+  }
+
+  .group-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+  }
+
+  .group-actions-row {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .group-manage-panel {
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
   /* ---- Chain badge & step row ---- */
   .chain-badge {
     display: inline-flex;
@@ -824,6 +881,18 @@
           <tr><td colspan="8" class="empty-state">No workers registered yet.</td></tr>
         </tbody>
       </table>
+    </div>
+    <!-- Group management bar -->
+    <div style="padding:12px 20px;border-top:1px solid var(--border);background:var(--bg3);">
+      <div class="group-manage-panel">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:0.05em;text-transform:uppercase;align-self:center;">Groups</div>
+        <div class="input-with-btn" style="max-width:220px;">
+          <input type="text" id="new-group-name" class="form-input" placeholder="New group name…"
+                 onkeydown="if(event.key==='Enter')createGroup()" style="font-size:12px;" />
+          <button class="btn btn-ghost btn-sm" onclick="createGroup()">＋ Create</button>
+        </div>
+        <div id="groups-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      </div>
     </div>
   </div>
 
@@ -1017,11 +1086,19 @@
       </div>
     </div>
     <div id="edit-sched-fields" style="margin-bottom:12px;"></div>
-    <div class="form-group">
-      <label class="form-label">Output Directory <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
-      <div class="input-with-btn">
-        <input type="text" id="edit-outdir" class="form-input" placeholder="/path/to/output/dir (optional)" />
-        <button class="btn btn-ghost btn-sm" onclick="browseEditFile('outdir')">Browse</button>
+    <div class="form-row" style="margin-bottom:12px;">
+      <div class="form-group">
+        <label class="form-label">Output Directory <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+        <div class="input-with-btn">
+          <input type="text" id="edit-outdir" class="form-input" placeholder="/path/to/output/dir (optional)" />
+          <button class="btn btn-ghost btn-sm" onclick="browseEditFile('outdir')">Browse</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Group <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+        <select id="edit-group" class="form-input" style="padding:8px 10px;">
+          <option value="">— No group —</option>
+        </select>
       </div>
     </div>
     <div class="modal-actions">
@@ -1097,6 +1174,12 @@
     </div>
     <div id="chain-steps-list" style="margin-bottom:8px;"></div>
     <button class="btn btn-ghost btn-sm" onclick="addChainStep()">＋ Add Step</button>
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label">Group <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+      <select id="chain-group" class="form-input" style="padding:8px 10px;">
+        <option value="">— No group —</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('chain-modal')">Cancel</button>
       <button class="btn btn-primary" id="chain-confirm-btn" onclick="confirmChain()">Create Chain</button>
@@ -1379,62 +1462,109 @@ async function refreshWorkers() {
   } catch(e) {}
 }
 
+function buildItemRow(w) {
+  const entityType = w.entity_type || 'worker';
+  const pauseLabel = w.paused ? '▶ Resume' : '⏸ Pause';
+  const pauseClass = w.paused ? 'btn-success' : 'btn-warning';
+  const nextFire = w.paused
+    ? '<span class="status-paused">⏸ Paused</span>'
+    : `<span class="next-fire">${escHtml(w.next_trigger)}</span>`;
+  const remaining = w.paused ? '—' : `<span class="remaining-count">${w.remaining_today}</span>`;
+
+  let taskCell;
+  if (entityType === 'chain') {
+    const stepCount = w.steps ? w.steps.length : 0;
+    taskCell = `<div><span class="chain-badge">⛓ chain</span> <span style="color:var(--text2);font-family:var(--mono);font-size:11px;">${stepCount} step${stepCount !== 1 ? 's' : ''}</span></div>`;
+  } else {
+    const shortPath = (w.task_path || '').length > 40 ? '…' + w.task_path.slice(-38) : (w.task_path || '');
+    taskCell = `<div class="task-path" title="${escHtml(w.task_path)}">${escHtml(shortPath)}</div>`;
+  }
+
+  const dotClass = w.last_run_status || 'none';
+  const dotTitle = w.last_run_status === 'ok' ? 'Last run: success'
+                 : w.last_run_status === 'error' ? 'Last run: failed'
+                 : 'No runs yet';
+
+  const editBtn = entityType === 'chain'
+    ? `<button class="btn btn-ghost btn-sm" onclick="editChain(${w.id})">Edit</button>`
+    : `<button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>`;
+
+  return `
+    <tr>
+      <td style="color:var(--text3);font-family:var(--mono);font-size:11px;">${w.id}</td>
+      <td class="worker-name">${escHtml(w.name)}</td>
+      <td>${taskCell}</td>
+      <td><span class="sched-badge">${escHtml(w.schedule_display)}</span></td>
+      <td>${nextFire}</td>
+      <td>${remaining}</td>
+      <td style="text-align:center;">
+        <span class="history-dot ${dotClass}" title="${dotTitle}"
+              onclick="openHistory(${w.id}, '${entityType}', '${escHtml(w.name)}')"></span>
+      </td>
+      <td>
+        <div class="row-actions">
+          ${editBtn}
+          <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${entityType}')">▶ Run Now</button>
+          <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id}, '${entityType}')">${pauseLabel}</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteItem(${w.id}, '${escHtml(w.name)}', '${entityType}')">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderWorkersTable(items) {
   const tbody = document.getElementById('workers-tbody');
   if (!items.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No workers or chains registered yet.</td></tr>';
     return;
   }
-  tbody.innerHTML = items.map((w) => {
-    const entityType = w.entity_type || 'worker';
-    const pauseLabel = w.paused ? '▶ Resume' : '⏸ Pause';
-    const pauseClass = w.paused ? 'btn-success' : 'btn-warning';
-    const nextFire = w.paused
-      ? '<span class="status-paused">⏸ Paused</span>'
-      : `<span class="next-fire">${escHtml(w.next_trigger)}</span>`;
-    const remaining = w.paused ? '—' : `<span class="remaining-count">${w.remaining_today}</span>`;
 
-    let taskCell;
-    if (entityType === 'chain') {
-      const stepCount = w.steps ? w.steps.length : 0;
-      taskCell = `<div><span class="chain-badge">⛓ chain</span> <span style="color:var(--text2);font-family:var(--mono);font-size:11px;">${stepCount} step${stepCount !== 1 ? 's' : ''}</span></div>`;
-    } else {
-      const shortPath = w.task_path.length > 40 ? '…' + w.task_path.slice(-38) : w.task_path;
-      taskCell = `<div class="task-path" title="${escHtml(w.task_path)}">${escHtml(shortPath)}</div>`;
-    }
+  // Split into ungrouped and grouped
+  const ungrouped = items.filter(w => !w.group_id);
+  const grouped = {};
+  items.filter(w => w.group_id).forEach(w => {
+    if (!grouped[w.group_id]) grouped[w.group_id] = [];
+    grouped[w.group_id].push(w);
+  });
 
-    const dotClass = w.last_run_status || 'none';
-    const dotTitle = w.last_run_status === 'ok' ? 'Last run: success'
-                   : w.last_run_status === 'error' ? 'Last run: failed'
-                   : 'No runs yet';
+  let html = '';
 
-    const editBtn = entityType === 'chain'
-      ? `<button class="btn btn-ghost btn-sm" onclick="editChain(${w.id})">Edit</button>`
-      : `<button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>`;
+  // Ungrouped items first
+  html += ungrouped.map(w => buildItemRow(w)).join('');
 
-    return `
-      <tr>
-        <td style="color:var(--text3);font-family:var(--mono);font-size:11px;">${w.id}</td>
-        <td class="worker-name">${escHtml(w.name)}</td>
-        <td>${taskCell}</td>
-        <td><span class="sched-badge">${escHtml(w.schedule_display)}</span></td>
-        <td>${nextFire}</td>
-        <td>${remaining}</td>
-        <td style="text-align:center;">
-          <span class="history-dot ${dotClass}" title="${dotTitle}"
-                onclick="openHistory(${w.id}, '${entityType}', '${escHtml(w.name)}')"></span>
-        </td>
-        <td>
-          <div class="row-actions">
-            ${editBtn}
-            <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${entityType}')">▶ Run Now</button>
-            <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id}, '${entityType}')">${pauseLabel}</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteItem(${w.id}, '${escHtml(w.name)}', '${entityType}')">Delete</button>
+  // Groups
+  currentGroups.forEach(g => {
+    const members = grouped[g.id] || [];
+    const isCollapsed = collapsedGroups.has(g.id);
+    const collapseClass = isCollapsed ? 'collapsed' : '';
+    const memberCount = members.length;
+
+    html += `
+      <tr class="group-header-row">
+        <td colspan="8">
+          <div class="group-header-inner">
+            <button class="group-collapse-btn ${collapseClass}" onclick="toggleGroupCollapse(${g.id})">▾</button>
+            <span class="group-name-label">${escHtml(g.name)}</span>
+            <span class="group-count">(${memberCount})</span>
+            <div class="group-actions-row">
+              <button class="btn btn-warning btn-sm" onclick="pauseGroup(${g.id})">⏸ Pause All</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteGroupItems(${g.id}, '${escHtml(g.name)}')">✕ Delete All</button>
+            </div>
           </div>
         </td>
-      </tr>
-    `;
-  }).join('');
+      </tr>`;
+
+    if (!isCollapsed) {
+      if (members.length) {
+        html += members.map(w => buildItemRow(w)).join('');
+      } else {
+        html += `<tr><td colspan="8" style="padding:12px 20px;color:var(--text3);font-family:var(--mono);font-size:11px;">No workers or chains in this group.</td></tr>`;
+      }
+    }
+  });
+
+  tbody.innerHTML = html;
 }
 
 async function runNow(id, entityType) {
@@ -2003,6 +2133,10 @@ function editWorker(id) {
   document.getElementById('edit-path').value = w.task_path;
   document.getElementById('edit-outdir').value = w.output_dir || '';
   setEditSchedType(w.sched_type, null, w.sched_value);
+  // Populate and set group dropdown
+  populateGroupDropdowns();
+  const grpSel = document.getElementById('edit-group');
+  if (grpSel) grpSel.value = w.group_id || '';
   openModal('edit-worker-modal');
   setTimeout(() => document.getElementById('edit-name').focus(), 100);
 }
@@ -2071,12 +2205,15 @@ async function confirmEditWorker() {
     schedVal = `${h}h ${m}m`;
   }
 
+  const groupId = document.getElementById('edit-group')?.value || null;
+
   try {
     const r = await fetch(`/api/workers/${editingWorkerId}`, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({name, task_path: path, sched_type: editSchedType,
-                            sched_value: schedVal, output_dir: outdir}),
+                            sched_value: schedVal, output_dir: outdir,
+                            group_id: groupId ? parseInt(groupId) : null}),
     });
     const d = await r.json();
     if (r.ok) {
@@ -2087,6 +2224,121 @@ async function confirmEditWorker() {
       toast('Error: ' + (d.error || 'Unknown'), 'error');
     }
   } catch(e) { toast('Failed to update worker: ' + e, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Worker Groups
+// ═══════════════════════════════════════════════════════════════
+let currentGroups = [];
+let collapsedGroups = new Set();
+
+async function refreshGroups() {
+  try {
+    const r = await fetch('/api/groups');
+    currentGroups = await r.json();
+    renderGroupChips();
+    populateGroupDropdowns();
+  } catch(e) {}
+}
+
+function renderGroupChips() {
+  const el = document.getElementById('groups-chips');
+  if (!currentGroups.length) {
+    el.innerHTML = '<span style="font-size:11px;color:var(--text3);font-family:var(--mono);">No groups yet</span>';
+    return;
+  }
+  el.innerHTML = currentGroups.map(g => `
+    <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;
+                 background:rgba(255,140,66,0.1);border:1px solid rgba(255,140,66,0.25);
+                 font-size:11px;color:var(--orange);font-family:var(--mono);">
+      ${escHtml(g.name)}
+      <button onclick="deleteGroup(${g.id}, '${escHtml(g.name)}')"
+              style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;
+                     padding:0 0 0 2px;line-height:1;" title="Delete group">✕</button>
+    </span>
+  `).join('');
+}
+
+function populateGroupDropdowns() {
+  const opts = '<option value="">— No group —</option>' +
+    currentGroups.map(g => `<option value="${g.id}">${escHtml(g.name)}</option>`).join('');
+  const editSel = document.getElementById('edit-group');
+  const chainSel = document.getElementById('chain-group');
+  if (editSel) {
+    const cur = editSel.value;
+    editSel.innerHTML = opts;
+    if (cur) editSel.value = cur;
+  }
+  if (chainSel) {
+    const cur = chainSel.value;
+    chainSel.innerHTML = opts;
+    if (cur) chainSel.value = cur;
+  }
+}
+
+async function createGroup() {
+  const input = document.getElementById('new-group-name');
+  const name = input.value.trim();
+  if (!name) { toast('Enter a group name.', 'error'); return; }
+  try {
+    const r = await fetch('/api/groups', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name}),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      input.value = '';
+      toast(`Group "${name}" created.`, 'ok');
+      await refreshGroups();
+      refreshWorkers();
+    } else {
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Failed: ' + e, 'error'); }
+}
+
+async function deleteGroup(id, name) {
+  if (!confirm(`Delete group "${name}"? Workers/chains will be unassigned but not deleted.`)) return;
+  try {
+    await fetch(`/api/groups/${id}`, {method:'DELETE'});
+    toast(`Group "${name}" deleted.`, 'info');
+    await refreshGroups();
+    refreshWorkers();
+  } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+async function pauseGroup(groupId) {
+  const members = [...currentWorkers, ...currentChains].filter(w => w.group_id === groupId);
+  const active = members.filter(w => !w.paused);
+  if (!active.length) { toast('All items in group are already paused.', 'info'); return; }
+  await Promise.all(active.map(w =>
+    fetch(w.entity_type === 'chain' ? `/api/chains/${w.id}/pause` : `/api/workers/${w.id}/pause`,
+          {method:'POST'})
+  ));
+  toast(`Paused ${active.length} item(s) in group.`, 'info');
+  refreshWorkers();
+}
+
+async function deleteGroupItems(groupId, groupName) {
+  const members = [...currentWorkers, ...currentChains].filter(w => w.group_id === groupId);
+  if (!members.length) { toast('Group is empty.', 'info'); return; }
+  if (!confirm(`Delete all ${members.length} item(s) in group "${groupName}"?`)) return;
+  await Promise.all(members.map(w =>
+    fetch(w.entity_type === 'chain' ? `/api/chains/${w.id}` : `/api/workers/${w.id}`,
+          {method:'DELETE'})
+  ));
+  toast(`Deleted ${members.length} item(s).`, 'info');
+  refreshWorkers();
+}
+
+function toggleGroupCollapse(groupId) {
+  if (collapsedGroups.has(groupId)) {
+    collapsedGroups.delete(groupId);
+  } else {
+    collapsedGroups.add(groupId);
+  }
+  renderWorkersTable([...currentWorkers, ...currentChains]);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2103,6 +2355,9 @@ function openNewChainModal() {
   chainSchedType = 'fixed';
   document.querySelectorAll('#chain-sched-toggle .sched-toggle-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
   renderChainSchedFields('fixed', '');
+  populateGroupDropdowns();
+  const grpSel = document.getElementById('chain-group');
+  if (grpSel) grpSel.value = '';
   addChainStep();
   openModal('chain-modal');
   setTimeout(() => document.getElementById('chain-name').focus(), 100);
@@ -2193,12 +2448,14 @@ async function confirmChain() {
 
   const schedVal = getChainSchedValue();
   const stopOnFailure = document.getElementById('chain-stop-on-failure').checked;
+  const groupIdRaw = document.getElementById('chain-group')?.value || '';
 
   const payload = {
     name,
     sched_type: chainSchedType,
     sched_value: schedVal,
     stop_on_failure: stopOnFailure,
+    group_id: groupIdRaw ? parseInt(groupIdRaw) : null,
     steps,
   };
 
@@ -2246,6 +2503,9 @@ function editChain(id) {
   renderChainSchedFields(c.sched_type, c.sched_value);
   (c.steps || []).forEach(s => addChainStep(s.task_path));
   if (!c.steps || !c.steps.length) addChainStep();
+  populateGroupDropdowns();
+  const grpSel = document.getElementById('chain-group');
+  if (grpSel) grpSel.value = c.group_id || '';
   openModal('chain-modal');
 }
 
@@ -2351,12 +2611,13 @@ function escHtml(s) {
 // ═══════════════════════════════════════════════════════════════
 function init() {
   addWorkerCard();
-  refreshWorkers();
+  refreshGroups().then(() => refreshWorkers());
   refreshProfiles();
   checkRedisStatus();
   pollLogs();
 
   setInterval(refreshWorkers, 4000);
+  setInterval(refreshGroups, 15000);
   setInterval(checkRedisStatus, 8000);
   setInterval(pollLogs, 3000);
 }

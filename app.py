@@ -146,6 +146,7 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        # ── Existing tables ────────────────────────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS workers (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,6 +167,59 @@ def init_db():
                 created_at  TEXT DEFAULT (datetime('now'))
             )
         """)
+
+        # ── V2: worker groups ──────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL UNIQUE,
+                order_index INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        # Migrate workers table: add group_id if missing
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(workers)")}
+        if "group_id" not in existing_cols:
+            conn.execute("ALTER TABLE workers ADD COLUMN group_id INTEGER DEFAULT NULL")
+
+        # ── V2: task chains ────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chains (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                sched_type      TEXT NOT NULL,
+                sched_value     TEXT NOT NULL,
+                stop_on_failure INTEGER DEFAULT 1,
+                paused          INTEGER DEFAULT 0,
+                group_id        INTEGER DEFAULT NULL,
+                created_at      TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chain_steps (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                chain_id    INTEGER NOT NULL,
+                order_index INTEGER NOT NULL,
+                task_path   TEXT NOT NULL,
+                FOREIGN KEY (chain_id) REFERENCES chains(id) ON DELETE CASCADE
+            )
+        """)
+
+        # ── V2: run history (workers + chains share this table) ────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS run_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                worker_id    INTEGER DEFAULT NULL,
+                chain_id     INTEGER DEFAULT NULL,
+                triggered_at TEXT DEFAULT (datetime('now')),
+                trigger_type TEXT NOT NULL,
+                success      INTEGER NOT NULL,
+                duration_ms  INTEGER NOT NULL,
+                error_msg    TEXT DEFAULT ''
+            )
+        """)
+
         conn.commit()
 
 # ---------------------------------------------------------------------------

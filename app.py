@@ -480,17 +480,16 @@ def _next_fire_times(worker_id: int):
             times.append(job.next_run_time)
     return sorted(times)
 
-def _remaining_today(worker_id: int) -> int:
+def _remaining_today_for_prefix(prefix: str) -> int:
     now = datetime.now().astimezone()
     end_of_day = datetime.now().replace(hour=23, minute=59, second=59).astimezone()
     count = 0
     for job in scheduler.get_jobs():
-        if not job.id.startswith(f"w{worker_id}_"):
+        if not job.id.startswith(prefix):
             continue
         t = job.next_run_time
         if t and now <= t <= end_of_day:
             count += 1
-            # For interval triggers, walk forward
             trigger = job.trigger
             if isinstance(trigger, IntervalTrigger):
                 cur = t
@@ -502,6 +501,102 @@ def _remaining_today(worker_id: int) -> int:
                     else:
                         break
     return count
+
+def _remaining_today(worker_id: int) -> int:
+    return _remaining_today_for_prefix(f"w{worker_id}_")
+
+# ---------------------------------------------------------------------------
+# Chain runner and scheduler
+# ---------------------------------------------------------------------------
+def _chain_runner(chain_id: int, trigger_type: str = "scheduled"):
+    """Run chain steps sequentially via subprocess."""
+    with get_db() as conn:
+        chain = conn.execute("SELECT * FROM chains WHERE id=?", (chain_id,)).fetchone()
+        steps = conn.execute(
+            "SELECT * FROM chain_steps WHERE chain_id=? ORDER BY order_index",
+            (chain_id,),
+        ).fetchall()
+    if not chain or not steps:
+        return
+
+    name         = chain["name"]
+    stop_on_fail = bool(chain["stop_on_failure"])
+    total        = len(steps)
+    t0           = time.time()
+    log_level    = "MANUAL" if trigger_type == "manual" else "FIRE"
+    add_log(log_level, f"Chain '{name}' started ({total} step(s))")
+
+    overall_success = True
+    last_error      = ""
+
+    for i, step in enumerate(steps, start=1):
+        task_path = step["task_path"]
+        basename  = os.path.basename(task_path)
+        step_t0   = time.time()
+        add_log("INFO", f"Chain '{name}' — step {i}/{total}: {basename}")
+        try:
+            ext = Path(task_path).suffix.lower()
+            if ext == ".py":
+                result = subprocess.run(
+                    [sys.executable, task_path],
+                    capture_output=True, text=True,
+                )
+            elif ext in (".bat", ".sh", ".cmd"):
+                result = subprocess.run(
+                    [task_path], capture_output=True, text=True,
+                )
+            else:
+                raise ValueError(f"Unsupported file type: {ext}")
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
+            add_log("OK", f"Chain '{name}' — step {i}/{total} completed in {time.time()-step_t0:.1f}s")
+        except Exception:
+            tb = traceback.format_exc()
+            last_error      = tb
+            overall_success = False
+            add_log("ERROR", f"Chain '{name}' — step {i}/{total} FAILED\n{tb}")
+            if stop_on_fail:
+                add_log("INFO", f"Chain '{name}' stopped at step {i} (stop-on-failure)")
+                break
+
+    duration_ms = int((time.time() - t0) * 1000)
+    if overall_success:
+        add_log("OK", f"Chain '{name}' completed in {duration_ms/1000:.1f}s")
+    else:
+        add_log("ERROR", f"Chain '{name}' finished with errors in {duration_ms/1000:.1f}s")
+    _record_run(chain_id=chain_id, trigger_type=trigger_type,
+                success=overall_success, duration_ms=duration_ms, error_msg=last_error)
+
+def register_chain_jobs(chain_id: int, sched_type: str, sched_value: str,
+                        paused: bool = False):
+    for job in scheduler.get_jobs():
+        if job.id.startswith(f"c{chain_id}_"):
+            scheduler.remove_job(job.id)
+    if paused:
+        return
+    triggers = _make_triggers(sched_type, sched_value)
+    for trigger, suffix in triggers:
+        scheduler.add_job(
+            _chain_runner,
+            trigger=trigger,
+            id=f"c{chain_id}_{suffix}",
+            args=[chain_id],
+            kwargs={"trigger_type": "scheduled"},
+            replace_existing=True,
+            misfire_grace_time=60,
+        )
+
+def remove_chain_jobs(chain_id: int):
+    for job in scheduler.get_jobs():
+        if job.id.startswith(f"c{chain_id}_"):
+            scheduler.remove_job(job.id)
+
+def _next_fire_times_chain(chain_id: int):
+    times = []
+    for job in scheduler.get_jobs():
+        if job.id.startswith(f"c{chain_id}_") and job.next_run_time:
+            times.append(job.next_run_time)
+    return sorted(times)
 
 # ---------------------------------------------------------------------------
 # Flask app
@@ -800,6 +895,170 @@ def create_from_template():
     add_log("INFO", f"Worker '{worker_name}' created from template '{template_type}' (id={worker_id}).")
     return jsonify({"ok": True, "worker_id": worker_id}), 201
 
+# --- Chains ---
+@app.route("/api/chains", methods=["GET"])
+def list_chains():
+    with get_db() as conn:
+        chains = conn.execute("SELECT * FROM chains ORDER BY id").fetchall()
+        all_steps = conn.execute("SELECT * FROM chain_steps ORDER BY chain_id, order_index").fetchall()
+    steps_by_chain = {}
+    for s in all_steps:
+        steps_by_chain.setdefault(s["chain_id"], []).append(dict(s))
+    result = []
+    for c in chains:
+        cid = c["id"]
+        fires = _next_fire_times_chain(cid)
+        next_trigger = fires[0].strftime("%Y-%m-%d %H:%M:%S") if fires else "—"
+        remaining = _remaining_today_for_prefix(f"c{cid}_") if not c["paused"] else 0
+        result.append({
+            "id": cid,
+            "name": c["name"],
+            "sched_type": c["sched_type"],
+            "sched_value": c["sched_value"],
+            "stop_on_failure": bool(c["stop_on_failure"]),
+            "paused": bool(c["paused"]),
+            "group_id": c["group_id"],
+            "steps": steps_by_chain.get(cid, []),
+            "next_trigger": next_trigger,
+            "remaining_today": remaining,
+            "schedule_display": _schedule_display(c["sched_type"], c["sched_value"]),
+            "last_run_status": _last_run_status(chain_id=cid),
+            "entity_type": "chain",
+        })
+    return jsonify(result)
+
+@app.route("/api/chains", methods=["POST"])
+def add_chain():
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    sched_type = data.get("sched_type", "interval")
+    sched_value = data.get("sched_value", "1h").strip()
+    stop_on_failure = int(data.get("stop_on_failure", True))
+    steps = data.get("steps", [])
+
+    if not name:
+        return jsonify({"error": "Chain name required"}), 400
+    if not steps:
+        return jsonify({"error": "At least one step required"}), 400
+
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO chains (name, sched_type, sched_value, stop_on_failure) VALUES (?,?,?,?)",
+            (name, sched_type, sched_value, stop_on_failure),
+        )
+        chain_id = cur.lastrowid
+        for i, step in enumerate(steps):
+            task_path = step.get("task_path", "").strip()
+            if not task_path:
+                continue
+            if not os.path.isabs(task_path):
+                task_path = os.path.abspath(task_path)
+            conn.execute(
+                "INSERT INTO chain_steps (chain_id, order_index, task_path) VALUES (?,?,?)",
+                (chain_id, i, task_path),
+            )
+        conn.commit()
+
+    register_chain_jobs(chain_id, sched_type, sched_value)
+    add_log("INFO", f"Chain '{name}' registered (id={chain_id}, {len(steps)} step(s)).")
+    return jsonify({"ok": True, "chain_id": chain_id}), 201
+
+@app.route("/api/chains/<int:chain_id>", methods=["PUT"])
+def update_chain(chain_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM chains WHERE id=?", (chain_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    sched_type = data.get("sched_type", row["sched_type"])
+    sched_value = data.get("sched_value", row["sched_value"]).strip()
+    stop_on_failure = int(data.get("stop_on_failure", row["stop_on_failure"]))
+    steps = data.get("steps", [])
+
+    if not name:
+        return jsonify({"error": "Chain name required"}), 400
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE chains SET name=?, sched_type=?, sched_value=?, stop_on_failure=? WHERE id=?",
+            (name, sched_type, sched_value, stop_on_failure, chain_id),
+        )
+        conn.execute("DELETE FROM chain_steps WHERE chain_id=?", (chain_id,))
+        for i, step in enumerate(steps):
+            task_path = step.get("task_path", "").strip()
+            if not task_path:
+                continue
+            if not os.path.isabs(task_path):
+                task_path = os.path.abspath(task_path)
+            conn.execute(
+                "INSERT INTO chain_steps (chain_id, order_index, task_path) VALUES (?,?,?)",
+                (chain_id, i, task_path),
+            )
+        conn.commit()
+
+    register_chain_jobs(chain_id, sched_type, sched_value, paused=bool(row["paused"]))
+    add_log("INFO", f"Chain '{name}' updated (id={chain_id}).")
+    return jsonify({"ok": True})
+
+@app.route("/api/chains/<int:chain_id>", methods=["DELETE"])
+def delete_chain(chain_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT name FROM chains WHERE id=?", (chain_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        conn.execute("DELETE FROM chain_steps WHERE chain_id=?", (chain_id,))
+        conn.execute("DELETE FROM chains WHERE id=?", (chain_id,))
+        conn.commit()
+    remove_chain_jobs(chain_id)
+    add_log("DELETE", f"Chain '{row['name']}' deleted.")
+    return jsonify({"ok": True})
+
+@app.route("/api/chains/<int:chain_id>/pause", methods=["POST"])
+def toggle_pause_chain(chain_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM chains WHERE id=?", (chain_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        new_paused = 0 if row["paused"] else 1
+        conn.execute("UPDATE chains SET paused=? WHERE id=?", (new_paused, chain_id))
+        conn.commit()
+
+    if new_paused:
+        remove_chain_jobs(chain_id)
+        add_log("PAUSE", f"Chain '{row['name']}' paused.")
+    else:
+        register_chain_jobs(chain_id, row["sched_type"], row["sched_value"], paused=False)
+        add_log("INFO", f"Chain '{row['name']}' resumed.")
+
+    return jsonify({"paused": bool(new_paused)})
+
+@app.route("/api/chains/<int:chain_id>/run-now", methods=["POST"])
+def run_chain_now(chain_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT name FROM chains WHERE id=?", (chain_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    t = threading.Thread(
+        target=_chain_runner,
+        args=(chain_id,),
+        kwargs={"trigger_type": "manual"},
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"ok": True})
+
+@app.route("/api/chains/<int:chain_id>/history", methods=["GET"])
+def get_chain_history(chain_id):
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT triggered_at, trigger_type, success, duration_ms, error_msg
+               FROM run_history WHERE chain_id=? ORDER BY id DESC LIMIT 10""",
+            (chain_id,),
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
 # --- AI Analysis ---
 @app.route("/api/api-key-status", methods=["GET"])
 def api_key_status():
@@ -907,6 +1166,17 @@ def restore_workers():
         except Exception as e:
             add_log("ERROR", f"Failed to restore worker '{r['name']}': {e}")
 
+def restore_chains():
+    """Re-register all non-paused chains from DB into APScheduler on startup."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM chains WHERE paused=0").fetchall()
+    for r in rows:
+        try:
+            register_chain_jobs(r["id"], r["sched_type"], r["sched_value"])
+            add_log("INFO", f"Chain '{r['name']}' restored from DB.")
+        except Exception as e:
+            add_log("ERROR", f"Failed to restore chain '{r['name']}': {e}")
+
 def create_app():
     global scheduler
     _load_dotenv()
@@ -919,6 +1189,7 @@ def create_app():
     scheduler = BackgroundScheduler(jobstores=jobstores, timezone=_get_local_tz())
     scheduler.start()
     restore_workers()
+    restore_chains()
     atexit.register(lambda: scheduler.shutdown(wait=False))
     atexit.register(stop_redis)
     return app

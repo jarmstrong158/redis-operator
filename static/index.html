@@ -735,6 +735,27 @@
     cursor: not-allowed;
   }
 
+  /* ---- Chain badge & step row ---- */
+  .chain-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    background: rgba(192,132,252,0.1);
+    color: #c084fc;
+    border: 1px solid rgba(192,132,252,0.25);
+  }
+
+  .chain-step-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
   /* ---- API Key Modal ---- */
   .api-key-warning {
     background: rgba(255,204,0,0.06);
@@ -780,6 +801,7 @@
         <span id="worker-count" style="color:var(--text3);font-weight:400;margin-left:4px;font-size:11px;font-family:var(--mono)"></span>
       </div>
       <div class="table-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openNewChainModal()">⛓ New Chain</button>
         <button class="btn btn-warning btn-sm" onclick="pauseAll()">⏸ Pause All</button>
         <button class="btn btn-danger btn-sm" onclick="deleteAll()">✕ Delete All</button>
       </div>
@@ -1046,6 +1068,42 @@
   </div>
 </div>
 
+<!-- New/Edit Chain Modal -->
+<div class="modal-overlay" id="chain-modal">
+  <div class="modal" style="min-width:520px;max-width:620px;">
+    <h3 id="chain-modal-title">New Task Chain</h3>
+    <div class="form-row" style="margin-bottom:12px;">
+      <div class="form-group">
+        <label class="form-label">Chain Name</label>
+        <input type="text" id="chain-name" class="form-input" placeholder="e.g. Morning Pipeline" />
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label">Schedule Type</label>
+      <div class="sched-toggle" id="chain-sched-toggle">
+        <button class="sched-toggle-btn active" onclick="setChainSchedType('fixed', this)">Fixed Times</button>
+        <button class="sched-toggle-btn" onclick="setChainSchedType('interval', this)">Interval</button>
+      </div>
+    </div>
+    <div id="chain-sched-fields" style="margin-bottom:14px;"></div>
+    <div style="margin-bottom:12px;">
+      <label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text2);cursor:pointer;">
+        <input type="checkbox" id="chain-stop-on-failure" checked style="accent-color:var(--accent);" />
+        Stop on step failure
+      </label>
+    </div>
+    <div class="form-group" style="margin-bottom:6px;">
+      <label class="form-label">Steps <span style="color:var(--text3);font-weight:400;">(executed in order)</span></label>
+    </div>
+    <div id="chain-steps-list" style="margin-bottom:8px;"></div>
+    <button class="btn btn-ghost btn-sm" onclick="addChainStep()">＋ Add Step</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('chain-modal')">Cancel</button>
+      <button class="btn btn-primary" id="chain-confirm-btn" onclick="confirmChain()">Create Chain</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast container -->
 <div id="toast-container"></div>
 
@@ -1058,8 +1116,12 @@ let logOffset = 0;
 let logDisplayOffset = 0;  // for clear-display
 let logEntries = [];
 let currentWorkers = [];
+let currentChains = [];
 let editingWorkerId = null;
 let editSchedType = 'fixed';
+let editingChainId = null;
+let chainStepCount = 0;
+let chainSchedType = 'fixed';
 
 // ═══════════════════════════════════════════════════════════════
 // Toast
@@ -1301,42 +1363,60 @@ async function browseFile(cardNum, field) {
 // ═══════════════════════════════════════════════════════════════
 async function refreshWorkers() {
   try {
-    const r = await fetch('/api/workers');
-    const workers = await r.json();
+    const [wRes, cRes] = await Promise.all([
+      fetch('/api/workers'),
+      fetch('/api/chains'),
+    ]);
+    const workers = await wRes.json();
+    const chains  = await cRes.json();
     currentWorkers = workers;
-    renderWorkersTable(workers);
+    currentChains  = chains;
+    const combined = [...workers, ...chains];
+    renderWorkersTable(combined);
+    const total = workers.length + chains.length;
     const countEl = document.getElementById('worker-count');
-    countEl.textContent = workers.length ? `(${workers.length})` : '';
+    countEl.textContent = total ? `(${total})` : '';
   } catch(e) {}
 }
 
-function renderWorkersTable(workers) {
+function renderWorkersTable(items) {
   const tbody = document.getElementById('workers-tbody');
-  if (!workers.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No workers registered yet.</td></tr>';
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No workers or chains registered yet.</td></tr>';
     return;
   }
-  tbody.innerHTML = workers.map((w, i) => {
+  tbody.innerHTML = items.map((w) => {
+    const entityType = w.entity_type || 'worker';
     const pauseLabel = w.paused ? '▶ Resume' : '⏸ Pause';
     const pauseClass = w.paused ? 'btn-success' : 'btn-warning';
     const nextFire = w.paused
       ? '<span class="status-paused">⏸ Paused</span>'
       : `<span class="next-fire">${escHtml(w.next_trigger)}</span>`;
     const remaining = w.paused ? '—' : `<span class="remaining-count">${w.remaining_today}</span>`;
-    const shortPath = w.task_path.length > 40
-      ? '…' + w.task_path.slice(-38)
-      : w.task_path;
+
+    let taskCell;
+    if (entityType === 'chain') {
+      const stepCount = w.steps ? w.steps.length : 0;
+      taskCell = `<div><span class="chain-badge">⛓ chain</span> <span style="color:var(--text2);font-family:var(--mono);font-size:11px;">${stepCount} step${stepCount !== 1 ? 's' : ''}</span></div>`;
+    } else {
+      const shortPath = w.task_path.length > 40 ? '…' + w.task_path.slice(-38) : w.task_path;
+      taskCell = `<div class="task-path" title="${escHtml(w.task_path)}">${escHtml(shortPath)}</div>`;
+    }
 
     const dotClass = w.last_run_status || 'none';
     const dotTitle = w.last_run_status === 'ok' ? 'Last run: success'
                    : w.last_run_status === 'error' ? 'Last run: failed'
                    : 'No runs yet';
-    const entityType = w.entity_type || 'worker';
+
+    const editBtn = entityType === 'chain'
+      ? `<button class="btn btn-ghost btn-sm" onclick="editChain(${w.id})">Edit</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>`;
+
     return `
       <tr>
         <td style="color:var(--text3);font-family:var(--mono);font-size:11px;">${w.id}</td>
         <td class="worker-name">${escHtml(w.name)}</td>
-        <td><div class="task-path" title="${escHtml(w.task_path)}">${escHtml(shortPath)}</div></td>
+        <td>${taskCell}</td>
         <td><span class="sched-badge">${escHtml(w.schedule_display)}</span></td>
         <td>${nextFire}</td>
         <td>${remaining}</td>
@@ -1346,10 +1426,10 @@ function renderWorkersTable(workers) {
         </td>
         <td>
           <div class="row-actions">
-            <button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>
+            ${editBtn}
             <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${entityType}')">▶ Run Now</button>
-            <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id})">${pauseLabel}</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteWorker(${w.id}, '${escHtml(w.name)}')">Delete</button>
+            <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id}, '${entityType}')">${pauseLabel}</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteItem(${w.id}, '${escHtml(w.name)}', '${entityType}')">Delete</button>
           </div>
         </td>
       </tr>
@@ -1372,18 +1452,25 @@ async function runNow(id, entityType) {
   } catch(e) { toast('Run failed: ' + e, 'error'); }
 }
 
-async function togglePause(id) {
+async function togglePause(id, entityType) {
+  const endpoint = entityType === 'chain'
+    ? `/api/chains/${id}/pause`
+    : `/api/workers/${id}/pause`;
   try {
-    await fetch(`/api/workers/${id}/pause`, {method:'POST'});
+    await fetch(endpoint, {method:'POST'});
     refreshWorkers();
   } catch(e) { toast('Error: ' + e, 'error'); }
 }
 
-async function deleteWorker(id, name) {
-  if (!confirm(`Delete worker "${name}"?`)) return;
+async function deleteItem(id, name, entityType) {
+  const label = entityType === 'chain' ? 'chain' : 'worker';
+  if (!confirm(`Delete ${label} "${name}"?`)) return;
+  const endpoint = entityType === 'chain'
+    ? `/api/chains/${id}`
+    : `/api/workers/${id}`;
   try {
-    await fetch(`/api/workers/${id}`, {method:'DELETE'});
-    toast(`Worker "${name}" deleted.`, 'info');
+    await fetch(endpoint, {method:'DELETE'});
+    toast(`${label.charAt(0).toUpperCase() + label.slice(1)} "${name}" deleted.`, 'info');
     refreshWorkers();
   } catch(e) { toast('Error: ' + e, 'error'); }
 }
@@ -2000,6 +2087,166 @@ async function confirmEditWorker() {
       toast('Error: ' + (d.error || 'Unknown'), 'error');
     }
   } catch(e) { toast('Failed to update worker: ' + e, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Task Chains
+// ═══════════════════════════════════════════════════════════════
+function openNewChainModal() {
+  editingChainId = null;
+  chainStepCount = 0;
+  document.getElementById('chain-modal-title').textContent = 'New Task Chain';
+  document.getElementById('chain-confirm-btn').textContent = 'Create Chain';
+  document.getElementById('chain-name').value = '';
+  document.getElementById('chain-stop-on-failure').checked = true;
+  document.getElementById('chain-steps-list').innerHTML = '';
+  chainSchedType = 'fixed';
+  document.querySelectorAll('#chain-sched-toggle .sched-toggle-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  renderChainSchedFields('fixed', '');
+  addChainStep();
+  openModal('chain-modal');
+  setTimeout(() => document.getElementById('chain-name').focus(), 100);
+}
+
+function setChainSchedType(type, btn) {
+  chainSchedType = type;
+  document.querySelectorAll('#chain-sched-toggle .sched-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChainSchedFields(type, '');
+}
+
+function renderChainSchedFields(type, val) {
+  const el = document.getElementById('chain-sched-fields');
+  if (type === 'fixed') {
+    el.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Times (comma-separated, 24h)</label>
+        <input type="text" id="chain-sched-val" class="form-input" placeholder="09:00, 14:30" value="${escHtml(val||'')}" />
+        <div class="sched-hint">Fires daily at each listed time</div>
+      </div>`;
+  } else {
+    const h = (val||'').match(/(\d+)h/)?.[1] || '';
+    const m = (val||'').match(/(\d+)m/)?.[1] || '';
+    el.innerHTML = `
+      <div class="form-row three" style="margin-bottom:0;">
+        <div class="form-group">
+          <label class="form-label">Hours</label>
+          <input type="number" id="chain-interval-h" class="form-input" placeholder="0" min="0" max="23" value="${escHtml(h)}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Minutes</label>
+          <input type="number" id="chain-interval-m" class="form-input" placeholder="30" min="0" max="59" value="${escHtml(m)}" />
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-top:20px;">
+          <div class="sched-hint">between runs</div>
+        </div>
+      </div>`;
+  }
+}
+
+function getChainSchedValue() {
+  if (chainSchedType === 'fixed') return document.getElementById('chain-sched-val')?.value.trim() || '';
+  const h = parseInt(document.getElementById('chain-interval-h')?.value || '0') || 0;
+  const m = parseInt(document.getElementById('chain-interval-m')?.value || '0') || 0;
+  return `${h}h ${m}m`;
+}
+
+function addChainStep(prefillPath) {
+  chainStepCount++;
+  const n = chainStepCount;
+  const container = document.getElementById('chain-steps-list');
+  const row = document.createElement('div');
+  row.className = 'chain-step-row';
+  row.id = `chain-step-${n}`;
+  row.innerHTML = `
+    <span style="color:var(--text3);font-family:var(--mono);font-size:11px;flex-shrink:0;min-width:22px;">${n}.</span>
+    <div class="input-with-btn" style="flex:1;">
+      <input type="text" class="form-input chain-step-path" placeholder="/path/to/script.py"
+             value="${escHtml(prefillPath || '')}" />
+      <button class="btn btn-ghost btn-sm" onclick="browseChainStep(${n})">Browse</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('chain-step-${n}').remove()" title="Remove">✕</button>`;
+  container.appendChild(row);
+}
+
+async function browseChainStep(n) {
+  try {
+    const r = await fetch('/api/browse?mode=file');
+    const d = await r.json();
+    if (d.path) {
+      const row = document.getElementById(`chain-step-${n}`);
+      if (row) row.querySelector('.chain-step-path').value = d.path;
+    }
+  } catch(e) { toast('Browse failed: ' + e, 'error'); }
+}
+
+async function confirmChain() {
+  const name = document.getElementById('chain-name').value.trim();
+  if (!name) { toast('Chain name required.', 'error'); return; }
+
+  const steps = [];
+  document.querySelectorAll('.chain-step-row').forEach(row => {
+    const path = row.querySelector('.chain-step-path')?.value.trim();
+    if (path) steps.push({ task_path: path });
+  });
+  if (!steps.length) { toast('Add at least one step.', 'error'); return; }
+
+  const schedVal = getChainSchedValue();
+  const stopOnFailure = document.getElementById('chain-stop-on-failure').checked;
+
+  const payload = {
+    name,
+    sched_type: chainSchedType,
+    sched_value: schedVal,
+    stop_on_failure: stopOnFailure,
+    steps,
+  };
+
+  try {
+    let r;
+    if (editingChainId !== null) {
+      r = await fetch(`/api/chains/${editingChainId}`, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      });
+    } else {
+      r = await fetch('/api/chains', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      });
+    }
+    const d = await r.json();
+    if (r.ok) {
+      toast(editingChainId !== null ? `Chain "${name}" updated.` : `Chain "${name}" created.`, 'ok');
+      closeModal('chain-modal');
+      refreshWorkers();
+    } else {
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Failed: ' + e, 'error'); }
+}
+
+function editChain(id) {
+  const c = currentChains.find(x => x.id === id);
+  if (!c) return;
+  editingChainId = id;
+  chainStepCount = 0;
+  document.getElementById('chain-modal-title').textContent = 'Edit Chain';
+  document.getElementById('chain-confirm-btn').textContent = 'Save Changes';
+  document.getElementById('chain-name').value = c.name;
+  document.getElementById('chain-stop-on-failure').checked = c.stop_on_failure;
+  document.getElementById('chain-steps-list').innerHTML = '';
+  chainSchedType = c.sched_type;
+  document.querySelectorAll('#chain-sched-toggle .sched-toggle-btn').forEach((b, i) => {
+    b.classList.toggle('active',
+      (i === 0 && c.sched_type === 'fixed') || (i === 1 && c.sched_type === 'interval'));
+  });
+  renderChainSchedFields(c.sched_type, c.sched_value);
+  (c.steps || []).forEach(s => addChainStep(s.task_path));
+  if (!c.steps || !c.steps.length) addChainStep();
+  openModal('chain-modal');
 }
 
 // ═══════════════════════════════════════════════════════════════

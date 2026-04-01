@@ -550,6 +550,16 @@ def toggle_pause(worker_id):
 
     return jsonify({"paused": bool(new_paused)})
 
+@app.route("/api/workers/<int:worker_id>/history", methods=["GET"])
+def get_worker_history(worker_id):
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT triggered_at, trigger_type, success, duration_ms, error_msg
+               FROM run_history WHERE worker_id=? ORDER BY id DESC LIMIT 10""",
+            (worker_id,),
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
 @app.route("/api/workers/<int:worker_id>/run-now", methods=["POST"])
 def run_worker_now(worker_id):
     with get_db() as conn:

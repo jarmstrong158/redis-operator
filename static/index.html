@@ -629,6 +629,45 @@
     .profiles-row { flex-direction: column; align-items: stretch; }
   }
 
+  /* ---- History dot ---- */
+  .history-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    flex-shrink: 0;
+  }
+  .history-dot:hover { transform: scale(1.3); }
+  .history-dot.ok    { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+  .history-dot.error { background: var(--red);    box-shadow: 0 0 5px var(--red); }
+  .history-dot.none  { background: var(--text3);  box-shadow: none; }
+
+  /* ---- History modal table ---- */
+  .history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .history-table th {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text2);
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+    text-align: left; background: var(--bg3);
+  }
+  .history-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); color: var(--text); vertical-align: top;
+  }
+  .history-table tr:last-child td { border-bottom: none; }
+  .history-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+  .hist-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700;
+  }
+  .hist-badge.ok    { background: rgba(0,229,160,0.12); color: var(--green); }
+  .hist-badge.error { background: rgba(255,64,96,0.12);  color: var(--red); }
+  .hist-trigger-manual    { color: #c084fc; }
+  .hist-trigger-scheduled { color: var(--text2); }
+  .hist-empty { color: var(--text3); font-family: var(--mono); font-size: 12px; padding: 16px 0; text-align: center; }
+
   /* ---- AI Analysis Panel ---- */
   #ai-panel {
     display: none;
@@ -732,11 +771,12 @@
             <th>Schedule</th>
             <th>Next Trigger</th>
             <th>Remaining Today</th>
+            <th>Last Run</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="workers-tbody">
-          <tr><td colspan="7" class="empty-state">No workers registered yet.</td></tr>
+          <tr><td colspan="8" class="empty-state">No workers registered yet.</td></tr>
         </tbody>
       </table>
     </div>
@@ -825,6 +865,17 @@
   </div>
 
 </div><!-- #app -->
+
+<!-- History Modal -->
+<div class="modal-overlay" id="history-modal">
+  <div class="modal" style="min-width:560px;max-width:680px;">
+    <h3 id="history-modal-title">Run History</h3>
+    <div id="history-modal-body" style="margin-top:4px;max-height:360px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('history-modal')">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- Edit Worker Modal -->
 <div class="modal-overlay" id="edit-worker-modal">
@@ -1183,6 +1234,11 @@ function renderWorkersTable(workers) {
       ? '…' + w.task_path.slice(-38)
       : w.task_path;
 
+    const dotClass = w.last_run_status || 'none';
+    const dotTitle = w.last_run_status === 'ok' ? 'Last run: success'
+                   : w.last_run_status === 'error' ? 'Last run: failed'
+                   : 'No runs yet';
+    const entityType = w.entity_type || 'worker';
     return `
       <tr>
         <td style="color:var(--text3);font-family:var(--mono);font-size:11px;">${w.id}</td>
@@ -1191,10 +1247,14 @@ function renderWorkersTable(workers) {
         <td><span class="sched-badge">${escHtml(w.schedule_display)}</span></td>
         <td>${nextFire}</td>
         <td>${remaining}</td>
+        <td style="text-align:center;">
+          <span class="history-dot ${dotClass}" title="${dotTitle}"
+                onclick="openHistory(${w.id}, '${entityType}', '${escHtml(w.name)}')"></span>
+        </td>
         <td>
           <div class="row-actions">
             <button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>
-            <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${w.entity_type || 'worker'}')">▶ Run Now</button>
+            <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${entityType}')">▶ Run Now</button>
             <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id})">${pauseLabel}</button>
             <button class="btn btn-danger btn-sm" onclick="deleteWorker(${w.id}, '${escHtml(w.name)}')">Delete</button>
           </div>
@@ -1416,6 +1476,67 @@ function renderLogs() {
 function clearLogDisplay() {
   logDisplayOffset = logEntries.length;
   renderLogs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Task History
+// ═══════════════════════════════════════════════════════════════
+async function openHistory(id, entityType, name) {
+  document.getElementById('history-modal-title').textContent = `Run History — ${name}`;
+  document.getElementById('history-modal-body').innerHTML =
+    '<div class="hist-empty">Loading…</div>';
+  openModal('history-modal');
+
+  const endpoint = entityType === 'chain'
+    ? `/api/chains/${id}/history`
+    : `/api/workers/${id}/history`;
+
+  try {
+    const r = await fetch(endpoint);
+    const rows = await r.json();
+    const body = document.getElementById('history-modal-body');
+    if (!rows.length) {
+      body.innerHTML = '<div class="hist-empty">No runs recorded yet.</div>';
+      return;
+    }
+    body.innerHTML = `
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Triggered By</th>
+            <th>Status</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const status = r.success
+              ? '<span class="hist-badge ok">✓ Success</span>'
+              : '<span class="hist-badge error">✕ Failed</span>';
+            const trigger = r.trigger_type === 'manual'
+              ? '<span class="hist-trigger-manual">Manual</span>'
+              : '<span class="hist-trigger-scheduled">Scheduled</span>';
+            const dur = r.duration_ms < 1000
+              ? `${r.duration_ms}ms`
+              : `${(r.duration_ms / 1000).toFixed(1)}s`;
+            const errRow = (!r.success && r.error_msg)
+              ? `<tr><td colspan="4" style="padding:4px 10px 10px;color:var(--red);font-size:10px;white-space:pre-wrap;word-break:break-all;">${escHtml(r.error_msg.slice(0,400))}</td></tr>`
+              : '';
+            return `
+              <tr>
+                <td>${escHtml(r.triggered_at)}</td>
+                <td>${trigger}</td>
+                <td>${status}</td>
+                <td>${dur}</td>
+              </tr>${errRow}`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    document.getElementById('history-modal-body').innerHTML =
+      `<div class="hist-empty">Failed to load history: ${escHtml(String(e))}</div>`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -971,6 +971,13 @@
             <button class="btn btn-ghost btn-sm" onclick="loadSelectedProfile()">Load</button>
           </div>
         </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+          <button class="btn btn-ghost" onclick="exportData()" title="Download all workers, chains, and groups as JSON">⬇ Export</button>
+          <label class="btn btn-ghost" style="cursor:pointer;" title="Import workers, chains, and groups from a JSON file">
+            ⬆ Import
+            <input type="file" id="import-file-input" accept=".json" style="display:none;" onchange="importData(this)" />
+          </label>
+        </div>
       </div>
       <div class="profiles-list" id="profiles-list">
         <!-- profiles rendered here -->
@@ -1874,6 +1881,44 @@ async function deleteProfile(id, name) {
     toast(`Profile "${name}" deleted.`, 'info');
     refreshProfiles();
   } catch(e) { toast('Error: ' + e, 'error'); }
+}
+
+function exportData() {
+  const a = document.createElement('a');
+  a.href = '/api/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function importData(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch(e) {
+    toast('Invalid JSON file.', 'error');
+    return;
+  }
+  try {
+    const r = await fetch('/api/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast('Import failed: ' + (d.error || r.status), 'error'); return; }
+    const parts = [];
+    if (d.imported_groups)  parts.push(`${d.imported_groups} group${d.imported_groups!==1?'s':''}`);
+    if (d.imported_workers) parts.push(`${d.imported_workers} worker${d.imported_workers!==1?'s':''}`);
+    if (d.imported_chains)  parts.push(`${d.imported_chains} chain${d.imported_chains!==1?'s':''}`);
+    if (d.skipped)          parts.push(`${d.skipped} skipped`);
+    toast('Imported: ' + (parts.join(', ') || 'nothing new'), parts.length ? 'ok' : 'info');
+    refreshAll();
+  } catch(e) { toast('Import error: ' + e, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════════

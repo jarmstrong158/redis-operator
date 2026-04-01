@@ -1432,6 +1432,180 @@ def analyze_logs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- Import / Export ---
+@app.route("/api/export", methods=["GET"])
+def export_data():
+    with get_db() as conn:
+        workers  = conn.execute("SELECT * FROM workers ORDER BY id").fetchall()
+        groups   = conn.execute("SELECT * FROM groups ORDER BY id").fetchall()
+        chains   = conn.execute("SELECT * FROM chains ORDER BY id").fetchall()
+        steps    = conn.execute(
+            "SELECT * FROM chain_steps ORDER BY chain_id, order_index"
+        ).fetchall()
+
+    group_map = {g["id"]: g["name"] for g in groups}
+    steps_by_chain = {}
+    for s in steps:
+        steps_by_chain.setdefault(s["chain_id"], []).append(
+            {"task_path": s["task_path"], "order_index": s["order_index"]}
+        )
+
+    payload = {
+        "version": 1,
+        "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "groups": [{"name": g["name"]} for g in groups],
+        "workers": [
+            {
+                "name":            w["name"],
+                "task_path":       w["task_path"],
+                "sched_type":      w["sched_type"],
+                "sched_value":     w["sched_value"],
+                "output_dir":      w["output_dir"] or "",
+                "requirements":    w["requirements"] or "",
+                "new_console":     bool(w["new_console"]),
+                "timeout_minutes": int(w["timeout_minutes"] or 0),
+                "env_vars":        w["env_vars"] or "",
+                "group_name":      group_map.get(w["group_id"]) if w["group_id"] else None,
+                "paused":          bool(w["paused"]),
+            }
+            for w in workers
+        ],
+        "chains": [
+            {
+                "name":            c["name"],
+                "sched_type":      c["sched_type"],
+                "sched_value":     c["sched_value"],
+                "stop_on_failure": bool(c["stop_on_failure"]),
+                "paused":          bool(c["paused"]),
+                "group_name":      group_map.get(c["group_id"]) if c["group_id"] else None,
+                "steps":           steps_by_chain.get(c["id"], []),
+            }
+            for c in chains
+        ],
+    }
+
+    fname = f"redis_operator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    from flask import Response
+    return Response(
+        json.dumps(payload, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+@app.route("/api/import", methods=["POST"])
+def import_data():
+    data = request.get_json()
+    if not data or data.get("version") != 1:
+        return jsonify({"error": "Invalid or unsupported export format (expected version 1)"}), 400
+
+    imported_groups  = 0
+    imported_workers = 0
+    imported_chains  = 0
+    skipped          = 0
+
+    # 1. Groups — create missing ones, build name→id map
+    group_name_to_id = {}
+    with get_db() as conn:
+        existing_groups = {g["name"]: g["id"]
+                           for g in conn.execute("SELECT id, name FROM groups").fetchall()}
+    for g in data.get("groups", []):
+        name = g.get("name", "").strip()
+        if not name:
+            continue
+        if name in existing_groups:
+            group_name_to_id[name] = existing_groups[name]
+        else:
+            with get_db() as conn:
+                cur = conn.execute("INSERT INTO groups (name) VALUES (?)", (name,))
+                group_name_to_id[name] = cur.lastrowid
+                conn.commit()
+            imported_groups += 1
+
+    # 2. Workers
+    with get_db() as conn:
+        existing_workers = {r["name"] for r in conn.execute("SELECT name FROM workers").fetchall()}
+    for w in data.get("workers", []):
+        name = w.get("name", "").strip()
+        if not name or name in existing_workers:
+            skipped += 1
+            continue
+        task_path       = w.get("task_path", "")
+        sched_type      = w.get("sched_type", "interval")
+        sched_value     = w.get("sched_value", "1h")
+        output_dir      = w.get("output_dir", "")
+        requirements    = w.get("requirements", "")
+        new_console     = int(bool(w.get("new_console", False)))
+        timeout_minutes = int(w.get("timeout_minutes", 0) or 0)
+        env_vars        = w.get("env_vars", "")
+        paused          = int(bool(w.get("paused", False)))
+        group_id        = group_name_to_id.get(w.get("group_name")) if w.get("group_name") else None
+        with get_db() as conn:
+            cur = conn.execute(
+                """INSERT INTO workers
+                   (name, task_path, sched_type, sched_value, output_dir, requirements,
+                    new_console, timeout_minutes, env_vars, group_id, paused)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (name, task_path, sched_type, sched_value, output_dir, requirements,
+                 new_console, timeout_minutes, env_vars, group_id, paused),
+            )
+            worker_id = cur.lastrowid
+            conn.commit()
+        if not paused:
+            try:
+                register_worker_jobs(worker_id, task_path, sched_type, sched_value,
+                                     output_dir, new_console=bool(new_console),
+                                     timeout_minutes=timeout_minutes, env_vars=env_vars)
+            except Exception as e:
+                add_log("ERROR", f"Import: failed to schedule worker '{name}': {e}")
+        imported_workers += 1
+
+    # 3. Chains
+    with get_db() as conn:
+        existing_chains = {r["name"] for r in conn.execute("SELECT name FROM chains").fetchall()}
+    for c in data.get("chains", []):
+        name = c.get("name", "").strip()
+        if not name or name in existing_chains:
+            skipped += 1
+            continue
+        sched_type      = c.get("sched_type", "interval")
+        sched_value     = c.get("sched_value", "1h")
+        stop_on_failure = int(bool(c.get("stop_on_failure", True)))
+        paused          = int(bool(c.get("paused", False)))
+        group_id        = group_name_to_id.get(c.get("group_name")) if c.get("group_name") else None
+        steps           = c.get("steps", [])
+        with get_db() as conn:
+            cur = conn.execute(
+                """INSERT INTO chains (name, sched_type, sched_value, stop_on_failure, paused, group_id)
+                   VALUES (?,?,?,?,?,?)""",
+                (name, sched_type, sched_value, stop_on_failure, paused, group_id),
+            )
+            chain_id = cur.lastrowid
+            for i, step in enumerate(steps):
+                tp = step.get("task_path", "")
+                if tp:
+                    conn.execute(
+                        "INSERT INTO chain_steps (chain_id, order_index, task_path) VALUES (?,?,?)",
+                        (chain_id, i, tp),
+                    )
+            conn.commit()
+        if not paused:
+            try:
+                register_chain_jobs(chain_id, sched_type, sched_value)
+            except Exception as e:
+                add_log("ERROR", f"Import: failed to schedule chain '{name}': {e}")
+        imported_chains += 1
+
+    add_log("INFO",
+        f"Import complete — {imported_workers} worker(s), {imported_chains} chain(s), "
+        f"{imported_groups} group(s) added, {skipped} skipped (already exist).")
+    return jsonify({
+        "ok": True,
+        "imported_workers":  imported_workers,
+        "imported_chains":   imported_chains,
+        "imported_groups":   imported_groups,
+        "skipped":           skipped,
+    })
+
 # --- Logs ---
 @app.route("/api/logs", methods=["GET"])
 def get_logs():

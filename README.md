@@ -92,6 +92,25 @@ redis_operator/
 | Worker State | Redis (port 6379, auto-started if needed) |
 | Frontend | Vanilla JS, no build step, single HTML file |
 
+## AI Error Analysis
+
+The debug log panel includes an **Analyze Errors** button that becomes active when ERROR-level entries are present. Clicking it sends those errors to Claude and displays a plain-English diagnosis and recommended fix directly in the dashboard.
+
+### Setup
+
+The feature requires an Anthropic API key. You have two options:
+
+**Option A — prompted in the UI:**
+Click "Analyze Errors" when no key is configured. A modal will ask for your key and save it to a local `.env` file automatically. The key is loaded on every subsequent launch.
+
+**Option B — set it manually:**
+Create a `.env` file in the project directory:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The `.env` file is gitignored and your key is never transmitted anywhere except directly to the Anthropic API.
+
 ## API
 
 | Method | Path | Purpose |

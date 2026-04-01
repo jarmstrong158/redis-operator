@@ -627,6 +627,64 @@
     .form-row, .form-row.three { grid-template-columns: 1fr; }
     .profiles-row { flex-direction: column; align-items: stretch; }
   }
+
+  /* ---- AI Analysis Panel ---- */
+  #ai-panel {
+    display: none;
+    margin-top: 12px;
+    background: var(--bg3);
+    border: 1px solid rgba(0,200,255,0.2);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+
+  #ai-panel.show { display: block; }
+
+  .ai-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .ai-panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-family: var(--mono);
+  }
+
+  #ai-content {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .ai-loading { color: var(--text2); }
+
+  .btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  /* ---- API Key Modal ---- */
+  .api-key-warning {
+    background: rgba(255,204,0,0.06);
+    border: 1px solid rgba(255,204,0,0.25);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--yellow);
+    font-family: var(--mono);
+    line-height: 1.6;
+    margin-top: 14px;
+  }
 </style>
 </head>
 <body>
@@ -749,11 +807,19 @@
           Auto-scroll
         </label>
         <button class="btn btn-ghost btn-sm" onclick="clearLogDisplay()">Clear Display</button>
+        <button id="analyze-btn" class="btn btn-ghost btn-sm" onclick="analyzeErrors()" disabled>◈ Analyze Errors</button>
       </div>
     </div>
     <div class="panel-body" style="padding-top:12px;padding-bottom:12px;">
       <div id="log-panel">
         <div class="log-empty">No log entries yet.</div>
+      </div>
+      <div id="ai-panel">
+        <div class="ai-panel-header">
+          <span class="ai-panel-title">◈ AI Error Analysis</span>
+          <button class="btn btn-ghost btn-sm" onclick="closeAiPanel()">✕</button>
+        </div>
+        <div id="ai-content"></div>
       </div>
     </div>
   </div>
@@ -773,6 +839,26 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('save-profile-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmSaveProfile()">Save Profile</button>
+    </div>
+  </div>
+</div>
+
+<!-- API Key Modal -->
+<div class="modal-overlay" id="api-key-modal">
+  <div class="modal">
+    <h3>Anthropic API Key</h3>
+    <div class="form-group">
+      <label class="form-label">API Key</label>
+      <input type="password" id="api-key-input" class="form-input"
+             placeholder="sk-ant-..."
+             onkeydown="if(event.key==='Enter')confirmSaveApiKey()" />
+    </div>
+    <div class="api-key-warning">
+      &#9888; Your key will be saved to a local .env file in the project directory. It is never transmitted anywhere except directly to the Anthropic API.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('api-key-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmSaveApiKey()">Save &amp; Analyze</button>
     </div>
   </div>
 </div>
@@ -1264,11 +1350,96 @@ function renderLogs() {
   if (chk && chk.checked) {
     panel.scrollTop = panel.scrollHeight;
   }
+  updateAnalyzeBtn();
 }
 
 function clearLogDisplay() {
   logDisplayOffset = logEntries.length;
   renderLogs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI Error Analysis
+// ═══════════════════════════════════════════════════════════════
+function updateAnalyzeBtn() {
+  const btn = document.getElementById('analyze-btn');
+  if (!btn) return;
+  const hasErrors = logEntries.slice(logDisplayOffset).some(e => e.level === 'ERROR');
+  btn.disabled = !hasErrors;
+}
+
+async function analyzeErrors() {
+  const errors = logEntries.slice(logDisplayOffset).filter(e => e.level === 'ERROR');
+  if (!errors.length) { toast('No ERROR entries to analyze.', 'info'); return; }
+
+  try {
+    const r = await fetch('/api/api-key-status');
+    const d = await r.json();
+    if (!d.has_key) {
+      document.getElementById('api-key-input').value = '';
+      openModal('api-key-modal');
+      setTimeout(() => document.getElementById('api-key-input').focus(), 100);
+      return;
+    }
+  } catch(e) {
+    toast('Could not check API key status: ' + e, 'error');
+    return;
+  }
+
+  await runAnalysis(errors);
+}
+
+async function confirmSaveApiKey() {
+  const key = document.getElementById('api-key-input').value.trim();
+  if (!key) { toast('Enter your API key.', 'error'); return; }
+
+  try {
+    const r = await fetch('/api/save-api-key', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({key}),
+    });
+    if (!r.ok) {
+      const d = await r.json();
+      toast('Error saving key: ' + (d.error || 'Unknown'), 'error');
+      return;
+    }
+  } catch(e) {
+    toast('Failed to save key: ' + e, 'error');
+    return;
+  }
+
+  closeModal('api-key-modal');
+  const errors = logEntries.slice(logDisplayOffset).filter(e => e.level === 'ERROR');
+  await runAnalysis(errors);
+}
+
+async function runAnalysis(errors) {
+  const panel = document.getElementById('ai-panel');
+  const content = document.getElementById('ai-content');
+  panel.classList.add('show');
+  content.innerHTML = '<span class="ai-loading">Analyzing errors...</span>';
+  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+
+  try {
+    const r = await fetch('/api/analyze-logs', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({entries: errors}),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      content.textContent = 'Error: ' + (d.error || 'Unknown error');
+      return;
+    }
+    content.textContent = d.analysis;
+  } catch(e) {
+    content.textContent = 'Request failed: ' + e;
+  }
+}
+
+function closeAiPanel() {
+  document.getElementById('ai-panel').classList.remove('show');
 }
 
 // ═══════════════════════════════════════════════════════════════

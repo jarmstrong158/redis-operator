@@ -32,6 +32,22 @@ BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "redis_operator.db"
 STATIC_DIR = BASE_DIR / "static"
 DB_URL = f"sqlite:///{DB_PATH}"
+ENV_PATH = BASE_DIR / ".env"
+
+def _load_dotenv():
+    """Load KEY=VALUE pairs from .env into os.environ (only for unset keys)."""
+    if not ENV_PATH.exists():
+        return
+    with open(ENV_PATH) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
 
 # ---------------------------------------------------------------------------
 # In-memory log buffer
@@ -482,6 +498,80 @@ def delete_profile(profile_id):
     add_log("INFO", f"Profile '{row['name']}' deleted.")
     return jsonify({"ok": True})
 
+# --- AI Analysis ---
+@app.route("/api/api-key-status", methods=["GET"])
+def api_key_status():
+    return jsonify({"has_key": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())})
+
+@app.route("/api/save-api-key", methods=["POST"])
+def save_api_key():
+    data = request.get_json()
+    key = (data.get("key") or "").strip()
+    if not key:
+        return jsonify({"error": "No key provided"}), 400
+
+    lines = []
+    replaced = False
+    if ENV_PATH.exists():
+        with open(ENV_PATH) as f:
+            for line in f:
+                if line.strip().startswith("ANTHROPIC_API_KEY"):
+                    lines.append(f"ANTHROPIC_API_KEY={key}\n")
+                    replaced = True
+                else:
+                    lines.append(line)
+    if not replaced:
+        lines.append(f"ANTHROPIC_API_KEY={key}\n")
+
+    with open(ENV_PATH, "w") as f:
+        f.writelines(lines)
+
+    os.environ["ANTHROPIC_API_KEY"] = key
+    return jsonify({"ok": True})
+
+@app.route("/api/analyze-logs", methods=["POST"])
+def analyze_logs():
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    data = request.get_json()
+    entries = data.get("entries", [])
+    if not entries:
+        return jsonify({"error": "No error entries provided"}), 400
+
+    formatted = "\n".join(
+        f"[{e.get('ts','')}] {e.get('level','')}: {e.get('msg','')}"
+        for e in entries
+    )
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=(
+                "You are a helpful assistant that diagnoses errors in scheduled task runners. "
+                "The user is running Redis Operator, a local dashboard that schedules Python and "
+                "batch workers via APScheduler. Analyze the error log entries and provide a clear, "
+                "plain-English explanation of what went wrong and exactly what the user should do "
+                "to fix it. Be concise and practical."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Here are the error log entries from my task scheduler:\n\n{formatted}\n\n"
+                    "What went wrong and how do I fix it?"
+                ),
+            }],
+        ) as stream:
+            response = stream.get_final_message()
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        return jsonify({"analysis": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # --- Logs ---
 @app.route("/api/logs", methods=["GET"])
 def get_logs():
@@ -517,6 +607,7 @@ def restore_workers():
 
 def create_app():
     global scheduler
+    _load_dotenv()
     init_db()
     redis_result = start_redis()
     if not redis_result["ok"]:

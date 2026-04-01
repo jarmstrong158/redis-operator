@@ -38,17 +38,23 @@ brew install redis
 sudo apt install redis-server
 ```
 
-## Setup
+## Setup & Usage
+
+### Windows (easiest)
+
+1. Install [Python 3.10+](https://www.python.org/downloads/) — check **"Add Python to PATH"** during install
+2. Install [Redis](https://github.com/tporadowski/redis/releases) (or `winget install Redis.Redis`)
+3. Clone or download this repo
+4. Double-click **`start.bat`**
+
+On first run `start.bat` creates a virtual environment and installs all dependencies automatically. Subsequent launches skip straight to the dashboard.
+
+### Manual
 
 ```bash
 git clone https://github.com/jarmstrong158/redis-operator.git
 cd redis-operator
 pip install -r requirements.txt
-```
-
-## Usage
-
-```bash
 python launch.py
 ```
 

@@ -510,12 +510,13 @@
   .log-level { font-weight: 700; white-space: nowrap; flex-shrink: 0; min-width: 48px; }
   .log-msg { color: var(--text); white-space: pre-wrap; word-break: break-all; }
 
-  .log-level.INFO  { color: var(--accent); }
-  .log-level.OK    { color: var(--green); }
-  .log-level.FIRE  { color: var(--orange); }
-  .log-level.ERROR { color: var(--red); }
-  .log-level.PAUSE { color: var(--yellow); }
-  .log-level.DELETE{ color: var(--red); }
+  .log-level.INFO   { color: var(--accent); }
+  .log-level.OK     { color: var(--green); }
+  .log-level.FIRE   { color: var(--orange); }
+  .log-level.ERROR  { color: var(--red); }
+  .log-level.PAUSE  { color: var(--yellow); }
+  .log-level.DELETE { color: var(--red); }
+  .log-level.MANUAL { color: #c084fc; }
 
   .log-empty { color: var(--text3); text-align: center; padding: 20px; }
 
@@ -1193,6 +1194,7 @@ function renderWorkersTable(workers) {
         <td>
           <div class="row-actions">
             <button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>
+            <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${w.entity_type || 'worker'}')">▶ Run Now</button>
             <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id})">${pauseLabel}</button>
             <button class="btn btn-danger btn-sm" onclick="deleteWorker(${w.id}, '${escHtml(w.name)}')">Delete</button>
           </div>
@@ -1200,6 +1202,21 @@ function renderWorkersTable(workers) {
       </tr>
     `;
   }).join('');
+}
+
+async function runNow(id, entityType) {
+  const endpoint = entityType === 'chain'
+    ? `/api/chains/${id}/run-now`
+    : `/api/workers/${id}/run-now`;
+  try {
+    const r = await fetch(endpoint, {method: 'POST'});
+    if (r.ok) {
+      toast('Task fired manually.', 'ok');
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Run failed: ' + e, 'error'); }
 }
 
 async function togglePause(id) {

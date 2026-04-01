@@ -6,6 +6,7 @@ Flask + APScheduler + SQLite + Redis
 import os
 import sys
 import json
+import time
 import subprocess
 import threading
 import importlib.util
@@ -262,9 +263,43 @@ def _make_triggers(sched_type: str, sched_value: str):
         triggers.append((IntervalTrigger(hours=hours, minutes=minutes), "i0"))
     return triggers
 
-def _task_runner(worker_id: int, task_path: str, output_dir: str):
+def _record_run(worker_id=None, chain_id=None, trigger_type="scheduled",
+                success=True, duration_ms=0, error_msg=""):
+    """Write one row to run_history."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO run_history
+               (worker_id, chain_id, trigger_type, success, duration_ms, error_msg)
+               VALUES (?,?,?,?,?,?)""",
+            (worker_id, chain_id, trigger_type, int(success), duration_ms, error_msg),
+        )
+        conn.commit()
+
+def _last_run_status(worker_id=None, chain_id=None):
+    """Return 'ok', 'error', or None for the most recent run of a worker/chain."""
+    with get_db() as conn:
+        if worker_id is not None:
+            row = conn.execute(
+                "SELECT success FROM run_history WHERE worker_id=? ORDER BY id DESC LIMIT 1",
+                (worker_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT success FROM run_history WHERE chain_id=? ORDER BY id DESC LIMIT 1",
+                (chain_id,),
+            ).fetchone()
+    if row is None:
+        return None
+    return "ok" if row["success"] else "error"
+
+def _task_runner(worker_id: int, task_path: str, output_dir: str,
+                 trigger_type: str = "scheduled"):
     """Execute a task file. Supports .py and .bat/.sh scripts."""
-    add_log("FIRE", f"Worker #{worker_id} fired — {os.path.basename(task_path)}")
+    log_level = "MANUAL" if trigger_type == "manual" else "FIRE"
+    add_log(log_level, f"Worker #{worker_id} fired — {os.path.basename(task_path)}")
+    t0 = time.time()
+    error_msg = ""
+    success = False
     try:
         ext = Path(task_path).suffix.lower()
         if ext == ".py":
@@ -284,10 +319,16 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str):
                 raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
         else:
             raise ValueError(f"Unsupported file type: {ext}")
+        success = True
         add_log("OK", f"Worker #{worker_id} completed — {os.path.basename(task_path)}")
     except Exception:
         tb = traceback.format_exc()
+        error_msg = tb
         add_log("ERROR", f"Worker #{worker_id} FAILED — {os.path.basename(task_path)}\n{tb}")
+    finally:
+        duration_ms = int((time.time() - t0) * 1000)
+        _record_run(worker_id=worker_id, trigger_type=trigger_type,
+                    success=success, duration_ms=duration_ms, error_msg=error_msg)
 
 def register_worker_jobs(worker_id: int, task_path: str, sched_type: str,
                          sched_value: str, output_dir: str, paused: bool = False):
@@ -407,9 +448,12 @@ def list_workers():
             "sched_value": r["sched_value"],
             "output_dir": r["output_dir"],
             "paused": bool(r["paused"]),
+            "group_id": r["group_id"],
             "next_trigger": next_trigger,
             "remaining_today": remaining,
             "schedule_display": _schedule_display(r["sched_type"], r["sched_value"]),
+            "last_run_status": _last_run_status(worker_id=r["id"]),
+            "entity_type": "worker",
         })
     return jsonify(result)
 
@@ -505,6 +549,21 @@ def toggle_pause(worker_id):
         add_log("INFO", f"Worker '{row['name']}' resumed.")
 
     return jsonify({"paused": bool(new_paused)})
+
+@app.route("/api/workers/<int:worker_id>/run-now", methods=["POST"])
+def run_worker_now(worker_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM workers WHERE id=?", (worker_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    t = threading.Thread(
+        target=_task_runner,
+        args=(worker_id, row["task_path"], row["output_dir"]),
+        kwargs={"trigger_type": "manual"},
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"ok": True})
 
 @app.route("/api/workers/<int:worker_id>", methods=["DELETE"])
 def delete_worker(worker_id):

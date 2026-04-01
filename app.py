@@ -23,7 +23,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 import redis
 
 # ---------------------------------------------------------------------------
@@ -32,7 +31,6 @@ import redis
 BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "redis_operator.db"
 STATIC_DIR = BASE_DIR / "static"
-DB_URL = f"sqlite:///{DB_PATH}"
 ENV_PATH = BASE_DIR / ".env"
 TEMPLATES_DIR = BASE_DIR / "templates" / "generated"
 
@@ -1284,8 +1282,7 @@ def create_app():
     redis_result = start_redis()
     if not redis_result["ok"]:
         add_log("ERROR", redis_result["message"])
-    jobstores = {"default": SQLAlchemyJobStore(url=DB_URL)}
-    scheduler = BackgroundScheduler(jobstores=jobstores, timezone=_get_local_tz())
+    scheduler = BackgroundScheduler(timezone=_get_local_tz())
     scheduler.start()
     restore_workers()
     restore_chains()

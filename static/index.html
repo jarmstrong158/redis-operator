@@ -813,6 +813,37 @@
     margin-bottom: 6px;
   }
 
+  /* ---- Log filter pills ---- */
+  .log-level-pill {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid transparent;
+    font-family: var(--mono);
+    letter-spacing: 0.04em;
+    opacity: 0.35;
+    transition: opacity 0.15s, border-color 0.15s;
+    background: transparent;
+    color: inherit;
+  }
+  .log-level-pill.active { opacity: 1; }
+  .log-level-pill.INFO   { color: var(--accent);  border-color: rgba(0,200,255,0.3); }
+  .log-level-pill.OK     { color: var(--green);   border-color: rgba(0,229,160,0.3); }
+  .log-level-pill.FIRE   { color: var(--orange);  border-color: rgba(255,140,66,0.3); }
+  .log-level-pill.MANUAL { color: #c084fc;        border-color: rgba(192,132,252,0.3); }
+  .log-level-pill.ERROR  { color: var(--red);     border-color: rgba(255,64,96,0.3); }
+  .log-level-pill.PAUSE  { color: var(--yellow);  border-color: rgba(255,204,0,0.3); }
+  .log-level-pill.DELETE { color: var(--red);     border-color: rgba(255,64,96,0.3); }
+  .log-level-pill.active.INFO   { background: rgba(0,200,255,0.08); }
+  .log-level-pill.active.OK     { background: rgba(0,229,160,0.08); }
+  .log-level-pill.active.FIRE   { background: rgba(255,140,66,0.08); }
+  .log-level-pill.active.MANUAL { background: rgba(192,132,252,0.08); }
+  .log-level-pill.active.ERROR  { background: rgba(255,64,96,0.08); }
+  .log-level-pill.active.PAUSE  { background: rgba(255,204,0,0.08); }
+  .log-level-pill.active.DELETE { background: rgba(255,64,96,0.08); }
+
   /* ---- API Key Modal ---- */
   .api-key-warning {
     background: rgba(255,204,0,0.06);
@@ -956,12 +987,24 @@
         <span class="icon">◈</span>
         Debug Log
       </div>
-      <div class="log-controls">
+      <div class="log-controls" style="flex-wrap:wrap;gap:6px;">
+        <input type="text" id="log-search" class="form-input" placeholder="Search logs…"
+               oninput="renderLogs()"
+               style="width:160px;padding:4px 8px;font-size:11px;font-family:var(--mono);" />
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="log-level-pill INFO   active" onclick="toggleLogLevel('INFO',this)">INFO</button>
+          <button class="log-level-pill OK     active" onclick="toggleLogLevel('OK',this)">OK</button>
+          <button class="log-level-pill FIRE   active" onclick="toggleLogLevel('FIRE',this)">FIRE</button>
+          <button class="log-level-pill MANUAL active" onclick="toggleLogLevel('MANUAL',this)">MANUAL</button>
+          <button class="log-level-pill ERROR  active" onclick="toggleLogLevel('ERROR',this)">ERROR</button>
+          <button class="log-level-pill PAUSE  active" onclick="toggleLogLevel('PAUSE',this)">PAUSE</button>
+          <button class="log-level-pill DELETE active" onclick="toggleLogLevel('DELETE',this)">DELETE</button>
+        </div>
         <label class="log-autoscroll-label">
           <input type="checkbox" id="autoscroll-chk" checked />
           Auto-scroll
         </label>
-        <button class="btn btn-ghost btn-sm" onclick="clearLogDisplay()">Clear Display</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearLogDisplay()">Clear</button>
         <button id="analyze-btn" class="btn btn-ghost btn-sm" onclick="analyzeErrors()" disabled>◈ Analyze Errors</button>
       </div>
     </div>
@@ -1228,6 +1271,7 @@ let workerCardCount = 0;
 let logOffset = 0;
 let logDisplayOffset = 0;  // for clear-display
 let logEntries = [];
+let activeLevels = new Set(['INFO','OK','FIRE','MANUAL','ERROR','PAUSE','DELETE']);
 let currentWorkers = [];
 let currentChains = [];
 let editingWorkerId = null;
@@ -1815,11 +1859,25 @@ async function pollLogs() {
 
 function renderLogs() {
   const panel = document.getElementById('log-panel');
-  const displayEntries = logEntries.slice(logDisplayOffset);
+  const search = (document.getElementById('log-search')?.value || '').toLowerCase();
+  let displayEntries = logEntries.slice(logDisplayOffset);
+
+  // Level filter
+  displayEntries = displayEntries.filter(e => activeLevels.has(e.level));
+
+  // Keyword filter
+  if (search) {
+    displayEntries = displayEntries.filter(e =>
+      e.msg.toLowerCase().includes(search) || e.ts.toLowerCase().includes(search)
+    );
+  }
+
   if (!displayEntries.length) {
-    panel.innerHTML = '<div class="log-empty">No log entries yet.</div>';
+    panel.innerHTML = '<div class="log-empty">No matching log entries.</div>';
+    updateAnalyzeBtn();
     return;
   }
+
   panel.innerHTML = displayEntries.map(e => `
     <div class="log-entry">
       <span class="log-ts">${escHtml(e.ts)}</span>
@@ -1829,10 +1887,21 @@ function renderLogs() {
   `).join('');
 
   const chk = document.getElementById('autoscroll-chk');
-  if (chk && chk.checked) {
+  if (chk && chk.checked && !search) {
     panel.scrollTop = panel.scrollHeight;
   }
   updateAnalyzeBtn();
+}
+
+function toggleLogLevel(level, btn) {
+  if (activeLevels.has(level)) {
+    activeLevels.delete(level);
+    btn.classList.remove('active');
+  } else {
+    activeLevels.add(level);
+    btn.classList.add('active');
+  }
+  renderLogs();
 }
 
 function clearLogDisplay() {

@@ -826,6 +826,45 @@
 
 </div><!-- #app -->
 
+<!-- Edit Worker Modal -->
+<div class="modal-overlay" id="edit-worker-modal">
+  <div class="modal" style="min-width:520px;max-width:600px;">
+    <h3>Edit Worker</h3>
+    <div class="form-row" style="margin-bottom:12px;">
+      <div class="form-group">
+        <label class="form-label">Worker Name</label>
+        <input type="text" id="edit-name" class="form-input" placeholder="e.g. Morning Report" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Task File Path</label>
+        <div class="input-with-btn">
+          <input type="text" id="edit-path" class="form-input" placeholder="/absolute/path/to/task.py" />
+          <button class="btn btn-ghost btn-sm" onclick="browseEditFile('path')">Browse</button>
+        </div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label">Schedule Type</label>
+      <div class="sched-toggle" id="edit-sched-toggle">
+        <button class="sched-toggle-btn active" onclick="setEditSchedType('fixed', this)">Fixed Times</button>
+        <button class="sched-toggle-btn" onclick="setEditSchedType('interval', this)">Interval</button>
+      </div>
+    </div>
+    <div id="edit-sched-fields" style="margin-bottom:12px;"></div>
+    <div class="form-group">
+      <label class="form-label">Output Directory <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+      <div class="input-with-btn">
+        <input type="text" id="edit-outdir" class="form-input" placeholder="/path/to/output/dir (optional)" />
+        <button class="btn btn-ghost btn-sm" onclick="browseEditFile('outdir')">Browse</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('edit-worker-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmEditWorker()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- Save Profile Modal -->
 <div class="modal-overlay" id="save-profile-modal">
   <div class="modal">
@@ -874,6 +913,9 @@ let workerCardCount = 0;
 let logOffset = 0;
 let logDisplayOffset = 0;  // for clear-display
 let logEntries = [];
+let currentWorkers = [];
+let editingWorkerId = null;
+let editSchedType = 'fixed';
 
 // ═══════════════════════════════════════════════════════════════
 // Toast
@@ -1117,6 +1159,7 @@ async function refreshWorkers() {
   try {
     const r = await fetch('/api/workers');
     const workers = await r.json();
+    currentWorkers = workers;
     renderWorkersTable(workers);
     const countEl = document.getElementById('worker-count');
     countEl.textContent = workers.length ? `(${workers.length})` : '';
@@ -1150,6 +1193,7 @@ function renderWorkersTable(workers) {
         <td>${remaining}</td>
         <td>
           <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>
             <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id})">${pauseLabel}</button>
             <button class="btn btn-danger btn-sm" onclick="deleteWorker(${w.id}, '${escHtml(w.name)}')">Delete</button>
           </div>
@@ -1356,6 +1400,103 @@ function renderLogs() {
 function clearLogDisplay() {
   logDisplayOffset = logEntries.length;
   renderLogs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Edit Worker
+// ═══════════════════════════════════════════════════════════════
+function editWorker(id) {
+  const w = currentWorkers.find(x => x.id === id);
+  if (!w) return;
+  editingWorkerId = id;
+  document.getElementById('edit-name').value = w.name;
+  document.getElementById('edit-path').value = w.task_path;
+  document.getElementById('edit-outdir').value = w.output_dir || '';
+  setEditSchedType(w.sched_type, null, w.sched_value);
+  openModal('edit-worker-modal');
+  setTimeout(() => document.getElementById('edit-name').focus(), 100);
+}
+
+function setEditSchedType(type, btn, val) {
+  editSchedType = type;
+  const toggle = document.getElementById('edit-sched-toggle');
+  toggle.querySelectorAll('.sched-toggle-btn').forEach(b => b.classList.remove('active'));
+  if (btn) {
+    btn.classList.add('active');
+  } else {
+    toggle.querySelectorAll('.sched-toggle-btn')[type === 'fixed' ? 0 : 1].classList.add('active');
+  }
+  const fields = document.getElementById('edit-sched-fields');
+  if (type === 'fixed') {
+    fields.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Times (comma-separated, 24h)</label>
+        <input type="text" id="edit-sched-val" class="form-input" placeholder="09:00, 14:30, 17:00"
+               value="${escHtml(val || '')}" />
+        <div class="sched-hint">e.g. 09:00, 14:30, 17:00 — fires daily at each listed time</div>
+      </div>`;
+  } else {
+    const h = (val || '').match(/(\d+)h/)?.[1] || '';
+    const m = (val || '').match(/(\d+)m/)?.[1] || '';
+    fields.innerHTML = `
+      <div class="form-row three">
+        <div class="form-group">
+          <label class="form-label">Hours</label>
+          <input type="number" id="edit-interval-h" class="form-input" placeholder="0" min="0" max="23" value="${escHtml(h)}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Minutes</label>
+          <input type="number" id="edit-interval-m" class="form-input" placeholder="30" min="0" max="59" value="${escHtml(m)}" />
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-top:20px;">
+          <div class="sched-hint">between runs</div>
+        </div>
+      </div>`;
+  }
+}
+
+async function browseEditFile(field) {
+  const mode = field === 'outdir' ? 'dir' : 'file';
+  try {
+    const r = await fetch(`/api/browse?mode=${mode}`);
+    const d = await r.json();
+    if (d.error) { toast('File picker error: ' + d.error, 'error'); return; }
+    if (!d.path) return;
+    document.getElementById(field === 'path' ? 'edit-path' : 'edit-outdir').value = d.path;
+  } catch(e) { toast('Browse failed: ' + e, 'error'); }
+}
+
+async function confirmEditWorker() {
+  const name = document.getElementById('edit-name').value.trim();
+  const path = document.getElementById('edit-path').value.trim();
+  const outdir = document.getElementById('edit-outdir').value.trim();
+  if (!name || !path) { toast('Name and task path are required.', 'error'); return; }
+
+  let schedVal = '';
+  if (editSchedType === 'fixed') {
+    schedVal = document.getElementById('edit-sched-val')?.value.trim() || '';
+  } else {
+    const h = parseInt(document.getElementById('edit-interval-h')?.value || '0') || 0;
+    const m = parseInt(document.getElementById('edit-interval-m')?.value || '0') || 0;
+    schedVal = `${h}h ${m}m`;
+  }
+
+  try {
+    const r = await fetch(`/api/workers/${editingWorkerId}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name, task_path: path, sched_type: editSchedType,
+                            sched_value: schedVal, output_dir: outdir}),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      toast(`Worker "${name}" updated.`, 'ok');
+      closeModal('edit-worker-modal');
+      refreshWorkers();
+    } else {
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Failed to update worker: ' + e, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════════

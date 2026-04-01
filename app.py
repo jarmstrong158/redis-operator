@@ -399,6 +399,39 @@ def add_workers():
 
     return jsonify({"added": added, "errors": errors}), (201 if added else 400)
 
+@app.route("/api/workers/<int:worker_id>", methods=["PUT"])
+def update_worker(worker_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM workers WHERE id=?", (worker_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    task_path = data.get("task_path", "").strip()
+    sched_type = data.get("sched_type", row["sched_type"])
+    sched_value = data.get("sched_value", row["sched_value"]).strip()
+    output_dir = data.get("output_dir", "").strip()
+
+    if not name or not task_path:
+        return jsonify({"error": "Missing name or task path"}), 400
+    if not os.path.isabs(task_path):
+        task_path = os.path.abspath(task_path)
+    if output_dir and not os.path.isabs(output_dir):
+        output_dir = os.path.abspath(output_dir)
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=? WHERE id=?",
+            (name, task_path, sched_type, sched_value, output_dir, worker_id),
+        )
+        conn.commit()
+
+    register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir,
+                         paused=bool(row["paused"]))
+    add_log("INFO", f"Worker '{name}' updated (id={worker_id}).")
+    return jsonify({"ok": True})
+
 @app.route("/api/workers/<int:worker_id>/pause", methods=["POST"])
 def toggle_pause(worker_id):
     with get_db() as conn:

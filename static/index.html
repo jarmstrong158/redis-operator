@@ -1167,6 +1167,13 @@
       <label class="form-label">Timeout <span style="color:var(--text3);font-weight:400;">(minutes, 0 = no limit)</span></label>
       <input type="number" id="edit-timeout" class="form-input" min="0" placeholder="0" style="max-width:100px;" />
     </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Environment Variables <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+      <textarea id="edit-env-vars" class="form-input" rows="3"
+                placeholder="KEY=value&#10;API_TOKEN=abc123&#10;DEBUG=true"
+                style="font-family:var(--mono);font-size:11px;resize:vertical;"></textarea>
+      <div class="sched-hint">One KEY=VALUE per line — injected into the subprocess environment</div>
+    </div>
     <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
       <input type="checkbox" id="edit-new-console" />
       <label for="edit-new-console" style="margin:0;cursor:pointer;">
@@ -1388,6 +1395,14 @@ function addWorkerCard(prefill = null) {
         <input type="number" class="form-input wc-timeout" min="0" placeholder="0"
                value="${escHtml(String(prefill && prefill.timeout_minutes || 0))}" style="max-width:100px;" />
       </div>
+      <div class="form-group">
+        <label class="form-label">Environment Variables <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+        <textarea class="form-input wc-env-vars" rows="3"
+                  placeholder="KEY=value&#10;API_TOKEN=abc123&#10;DEBUG=true"
+                  style="font-family:var(--mono);font-size:11px;resize:vertical;"
+        >${escHtml(prefill && prefill.env_vars || '')}</textarea>
+        <div class="sched-hint">One KEY=VALUE per line — injected into the subprocess environment</div>
+      </div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
         <input type="checkbox" class="wc-new-console" id="wc-new-console-${n}"
                ${prefill && prefill.new_console ? 'checked' : ''} />
@@ -1464,6 +1479,7 @@ function getCardsData() {
     const reqs           = card.querySelector('.wc-requirements')?.value.trim() || '';
     const newConsole     = card.querySelector('.wc-new-console')?.checked || false;
     const timeoutMinutes = parseInt(card.querySelector('.wc-timeout')?.value || '0') || 0;
+    const envVars        = card.querySelector('.wc-env-vars')?.value || '';
     const type    = card.dataset.schedType || 'fixed';
     let schedVal  = '';
 
@@ -1480,7 +1496,7 @@ function getCardsData() {
       valid = false;
     }
 
-    workers.push({ name, task_path: path, sched_type: type, sched_value: schedVal, output_dir: outdir, requirements: reqs, new_console: newConsole, timeout_minutes: timeoutMinutes });
+    workers.push({ name, task_path: path, sched_type: type, sched_value: schedVal, output_dir: outdir, requirements: reqs, new_console: newConsole, timeout_minutes: timeoutMinutes, env_vars: envVars });
   });
   return valid ? workers : null;
 }
@@ -2296,6 +2312,7 @@ function editWorker(id) {
   document.getElementById('edit-outdir').value = w.output_dir || '';
   document.getElementById('edit-requirements').value = w.requirements || '';
   document.getElementById('edit-timeout').value = w.timeout_minutes || 0;
+  document.getElementById('edit-env-vars').value = w.env_vars || '';
   document.getElementById('edit-new-console').checked = !!w.new_console;
   setEditSchedType(w.sched_type, null, w.sched_value);
   // Populate and set group dropdown
@@ -2374,6 +2391,7 @@ async function confirmEditWorker() {
   const requirements   = document.getElementById('edit-requirements')?.value.trim() || '';
   const newConsole     = document.getElementById('edit-new-console')?.checked || false;
   const timeoutMinutes = parseInt(document.getElementById('edit-timeout')?.value || '0') || 0;
+  const envVars        = document.getElementById('edit-env-vars')?.value || '';
 
   try {
     const r = await fetch(`/api/workers/${editingWorkerId}`, {
@@ -2382,7 +2400,8 @@ async function confirmEditWorker() {
       body: JSON.stringify({name, task_path: path, sched_type: editSchedType,
                             sched_value: schedVal, output_dir: outdir,
                             group_id: groupId ? parseInt(groupId) : null,
-                            requirements, new_console: newConsole, timeout_minutes: timeoutMinutes}),
+                            requirements, new_console: newConsole, timeout_minutes: timeoutMinutes,
+                            env_vars: envVars}),
     });
     const d = await r.json();
     if (r.ok) {

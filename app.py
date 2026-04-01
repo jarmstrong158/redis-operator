@@ -389,6 +389,8 @@ def init_db():
             conn.execute("ALTER TABLE workers ADD COLUMN new_console INTEGER DEFAULT 0")
         if "timeout_minutes" not in existing_cols:
             conn.execute("ALTER TABLE workers ADD COLUMN timeout_minutes INTEGER DEFAULT 0")
+        if "env_vars" not in existing_cols:
+            conn.execute("ALTER TABLE workers ADD COLUMN env_vars TEXT DEFAULT ''")
 
         # ── V2: task chains ────────────────────────────────────────────────
         conn.execute("""
@@ -498,9 +500,21 @@ def _last_run_status(worker_id=None, chain_id=None):
         return None
     return "ok" if row["success"] else "error"
 
+def _parse_env_vars(env_vars: str) -> dict:
+    """Parse KEY=VALUE lines into a dict. Skips blank lines and comments."""
+    result = {}
+    for line in env_vars.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        result[key.strip()] = val.strip()
+    return result
+
 def _run_script(task_path: str, output_dir: str = "",
                 new_console: bool = False,
-                timeout_minutes: int = 0) -> subprocess.CompletedProcess:
+                timeout_minutes: int = 0,
+                env_vars: str = "") -> subprocess.CompletedProcess:
     """Run a script file as a subprocess and return the result."""
     ext = Path(task_path).suffix.lower()
     if ext == ".py":
@@ -511,10 +525,12 @@ def _run_script(task_path: str, output_dir: str = "",
         raise ValueError(f"Unsupported file type: {ext}")
     cwd = output_dir or os.path.dirname(task_path) or str(BASE_DIR)
     timeout_secs = timeout_minutes * 60 if timeout_minutes and timeout_minutes > 0 else None
+    env = {**os.environ, **_parse_env_vars(env_vars)} if env_vars.strip() else None
     if new_console and sys.platform == "win32":
         proc = subprocess.Popen(
             cmd,
             cwd=cwd,
+            env=env,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
         proc.wait(timeout=timeout_secs)
@@ -524,12 +540,13 @@ def _run_script(task_path: str, output_dir: str = "",
         capture_output=True,
         text=True,
         cwd=cwd,
+        env=env,
         timeout=timeout_secs,
     )
 
 def _task_runner(worker_id: int, task_path: str, output_dir: str,
                  trigger_type: str = "scheduled", new_console: bool = False,
-                 timeout_minutes: int = 0):
+                 timeout_minutes: int = 0, env_vars: str = ""):
     """Execute a task file as a subprocess.
     On ModuleNotFoundError, auto-installs the missing package and retries once."""
     log_level = "MANUAL" if trigger_type == "manual" else "FIRE"
@@ -540,7 +557,7 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
     basename = os.path.basename(task_path)
     try:
         result = _run_script(task_path, output_dir, new_console=new_console,
-                             timeout_minutes=timeout_minutes)
+                             timeout_minutes=timeout_minutes, env_vars=env_vars)
         if result.returncode != 0:
             stderr = result.stderr.strip()
             if "ModuleNotFoundError" in stderr or "No module named" in stderr:
@@ -548,7 +565,7 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
                 if missing and _pip_install([missing], context=f"Worker #{worker_id}"):
                     add_log("INFO", f"Worker #{worker_id} — retrying after install...")
                     result = _run_script(task_path, output_dir, new_console=new_console,
-                                        timeout_minutes=timeout_minutes)
+                                        timeout_minutes=timeout_minutes, env_vars=env_vars)
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
         if result.stdout.strip():
@@ -569,7 +586,8 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
 
 def register_worker_jobs(worker_id: int, task_path: str, sched_type: str,
                          sched_value: str, output_dir: str, paused: bool = False,
-                         new_console: bool = False, timeout_minutes: int = 0):
+                         new_console: bool = False, timeout_minutes: int = 0,
+                         env_vars: str = ""):
     """Add APScheduler jobs for a worker. Remove existing ones first."""
     for job in scheduler.get_jobs():
         if job.id.startswith(f"w{worker_id}_"):
@@ -586,7 +604,8 @@ def register_worker_jobs(worker_id: int, task_path: str, sched_type: str,
             trigger=trigger,
             id=job_id,
             args=[worker_id, task_path, output_dir],
-            kwargs={"new_console": new_console, "timeout_minutes": timeout_minutes},
+            kwargs={"new_console": new_console, "timeout_minutes": timeout_minutes,
+                    "env_vars": env_vars},
             replace_existing=True,
             misfire_grace_time=60,
         )
@@ -792,6 +811,7 @@ def list_workers():
             "requirements": r["requirements"] or "",
             "new_console": bool(r["new_console"]),
             "timeout_minutes": int(r["timeout_minutes"] or 0),
+            "env_vars": r["env_vars"] or "",
             "paused": bool(r["paused"]),
             "group_id": r["group_id"],
             "next_trigger": next_trigger,
@@ -837,6 +857,7 @@ def add_workers():
         requirements = w.get("requirements", "").strip()
         new_console = bool(w.get("new_console", False))
         timeout_minutes = int(w.get("timeout_minutes", 0) or 0)
+        env_vars = w.get("env_vars", "").strip()
 
         if not name or not task_path:
             errors.append(f"Worker missing name or task path: {w}")
@@ -848,15 +869,16 @@ def add_workers():
 
         with get_db() as conn:
             cur = conn.execute(
-                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements, new_console, timeout_minutes) VALUES (?,?,?,?,?,?,?,?)",
-                (name, task_path, sched_type, sched_value, output_dir, requirements, int(new_console), timeout_minutes),
+                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements, new_console, timeout_minutes, env_vars) VALUES (?,?,?,?,?,?,?,?,?)",
+                (name, task_path, sched_type, sched_value, output_dir, requirements, int(new_console), timeout_minutes, env_vars),
             )
             worker_id = cur.lastrowid
             conn.commit()
 
         _install_for_worker(name, task_path, requirements)
         register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir,
-                             new_console=new_console, timeout_minutes=timeout_minutes)
+                             new_console=new_console, timeout_minutes=timeout_minutes,
+                             env_vars=env_vars)
         add_log("INFO", f"Worker '{name}' registered (id={worker_id}).")
         added.append(worker_id)
 
@@ -887,18 +909,19 @@ def update_worker(worker_id):
     requirements = data.get("requirements", row["requirements"] or "").strip()
     new_console = bool(data.get("new_console", bool(row["new_console"])))
     timeout_minutes = int(data.get("timeout_minutes", row["timeout_minutes"]) or 0)
+    env_vars = data.get("env_vars", row["env_vars"] or "").strip()
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=?, new_console=?, timeout_minutes=? WHERE id=?",
-            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, int(new_console), timeout_minutes, worker_id),
+            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=?, new_console=?, timeout_minutes=?, env_vars=? WHERE id=?",
+            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, int(new_console), timeout_minutes, env_vars, worker_id),
         )
         conn.commit()
 
     _install_for_worker(name, task_path, requirements)
     register_worker_jobs(worker_id, task_path, sched_type, sched_value, output_dir,
                          paused=bool(row["paused"]), new_console=new_console,
-                         timeout_minutes=timeout_minutes)
+                         timeout_minutes=timeout_minutes, env_vars=env_vars)
     add_log("INFO", f"Worker '{name}' updated (id={worker_id}).")
     return jsonify({"ok": True})
 
@@ -947,7 +970,8 @@ def run_worker_now(worker_id):
         target=_task_runner,
         args=(worker_id, row["task_path"], row["output_dir"]),
         kwargs={"trigger_type": "manual", "new_console": bool(row["new_console"]),
-                "timeout_minutes": int(row["timeout_minutes"] or 0)},
+                "timeout_minutes": int(row["timeout_minutes"] or 0),
+                "env_vars": row["env_vars"] or ""},
         daemon=True,
     )
     t.start()
@@ -1434,7 +1458,8 @@ def restore_workers():
             register_worker_jobs(r["id"], r["task_path"], r["sched_type"],
                                  r["sched_value"], r["output_dir"],
                                  new_console=bool(r["new_console"]),
-                                 timeout_minutes=int(r["timeout_minutes"] or 0))
+                                 timeout_minutes=int(r["timeout_minutes"] or 0),
+                                 env_vars=r["env_vars"] or "")
             add_log("INFO", f"Worker '{r['name']}' restored from DB.")
         except Exception as e:
             add_log("ERROR", f"Failed to restore worker '{r['name']}': {e}")

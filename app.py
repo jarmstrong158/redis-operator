@@ -494,17 +494,25 @@ def _last_run_status(worker_id=None, chain_id=None):
         return None
     return "ok" if row["success"] else "error"
 
-def _run_py_task(task_path: str):
-    """Import and execute a .py task file in-process."""
-    spec = importlib.util.spec_from_file_location("_task", task_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    if hasattr(mod, "run"):
-        mod.run()
+def _run_script(task_path: str, output_dir: str = "") -> subprocess.CompletedProcess:
+    """Run a script file as a subprocess and return the result."""
+    ext = Path(task_path).suffix.lower()
+    if ext == ".py":
+        cmd = [sys.executable, task_path]
+    elif ext in (".bat", ".sh", ".cmd"):
+        cmd = [task_path]
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=output_dir or os.path.dirname(task_path) or str(BASE_DIR),
+    )
 
 def _task_runner(worker_id: int, task_path: str, output_dir: str,
                  trigger_type: str = "scheduled"):
-    """Execute a task file. Supports .py and .bat/.sh scripts.
+    """Execute a task file as a subprocess.
     On ModuleNotFoundError, auto-installs the missing package and retries once."""
     log_level = "MANUAL" if trigger_type == "manual" else "FIRE"
     add_log(log_level, f"Worker #{worker_id} fired — {os.path.basename(task_path)}")
@@ -513,29 +521,18 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
     success = False
     basename = os.path.basename(task_path)
     try:
-        ext = Path(task_path).suffix.lower()
-        if ext == ".py":
-            try:
-                _run_py_task(task_path)
-            except ModuleNotFoundError:
-                tb = traceback.format_exc()
-                missing = _extract_missing_module(tb)
+        result = _run_script(task_path, output_dir)
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            if "ModuleNotFoundError" in stderr or "No module named" in stderr:
+                missing = _extract_missing_module(stderr)
                 if missing and _pip_install([missing], context=f"Worker #{worker_id}"):
                     add_log("INFO", f"Worker #{worker_id} — retrying after install...")
-                    _run_py_task(task_path)
-                else:
-                    raise
-        elif ext in (".bat", ".sh", ".cmd"):
-            result = subprocess.run(
-                [task_path],
-                capture_output=True,
-                text=True,
-                cwd=output_dir or os.path.dirname(task_path),
-            )
+                    result = _run_script(task_path, output_dir)
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
+        if result.stdout.strip():
+            add_log("INFO", f"Worker #{worker_id} output:\n{result.stdout.strip()}")
         success = True
         add_log("OK", f"Worker #{worker_id} completed — {basename}")
     except Exception:

@@ -629,6 +629,29 @@
     .profiles-row { flex-direction: column; align-items: stretch; }
   }
 
+  /* ---- Template modal ---- */
+  .template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 4px 0 4px;
+  }
+  .template-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius2);
+    padding: 16px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    text-align: center;
+  }
+  .template-card:hover { border-color: var(--accent); background: rgba(0,200,255,0.04); }
+  .template-card.selected { border-color: var(--accent); background: rgba(0,200,255,0.1); box-shadow: 0 0 0 1px var(--accent); }
+  .template-card-icon { font-size: 26px; margin-bottom: 8px; line-height: 1; }
+  .template-card-name { font-weight: 700; font-size: 12px; color: #fff; }
+  .template-card-desc { font-size: 10px; color: var(--text2); margin-top: 4px; font-family: var(--mono); line-height: 1.4; }
+  .watcher-rule { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+
   /* ---- History dot ---- */
   .history-dot {
     width: 10px;
@@ -798,6 +821,7 @@
       </div>
       <div class="form-footer" style="margin-top:16px;">
         <button class="btn btn-ghost" onclick="addWorkerCard()">＋ Add Another Worker</button>
+        <button class="btn btn-ghost" onclick="openTemplateModal()">⚙ From Template</button>
         <button class="btn btn-primary" onclick="submitWorkers()">⚡ Register Workers</button>
       </div>
     </div>
@@ -865,6 +889,75 @@
   </div>
 
 </div><!-- #app -->
+
+<!-- Template Modal -->
+<div class="modal-overlay" id="template-modal">
+  <div class="modal" style="min-width:540px;max-width:660px;">
+
+    <!-- Step 1: pick template -->
+    <div id="tmpl-step1">
+      <h3>New Worker from Template</h3>
+      <p style="color:var(--text2);font-size:12px;margin-bottom:14px;">Choose a template — Redis Operator generates and manages the script for you.</p>
+      <div class="template-grid">
+        <div class="template-card" onclick="selectTemplate('folder_backup', this)">
+          <div class="template-card-icon">📁</div>
+          <div class="template-card-name">Folder Backup</div>
+          <div class="template-card-desc">Copy a folder to a backup destination, keep N copies</div>
+        </div>
+        <div class="template-card" onclick="selectTemplate('file_cleanup', this)">
+          <div class="template-card-icon">🗑</div>
+          <div class="template-card-name">File Cleanup</div>
+          <div class="template-card-desc">Delete files matching a pattern older than X days</div>
+        </div>
+        <div class="template-card" onclick="selectTemplate('folder_watcher', this)">
+          <div class="template-card-icon">👁</div>
+          <div class="template-card-name">Folder Watcher</div>
+          <div class="template-card-desc">Move files by extension to configured destinations</div>
+        </div>
+        <div class="template-card" onclick="selectTemplate('uptime_check', this)">
+          <div class="template-card-icon">🌐</div>
+          <div class="template-card-name">Uptime Check</div>
+          <div class="template-card-desc">Monitor a URL, log status, alert if down</div>
+        </div>
+        <div class="template-card" onclick="selectTemplate('open_url', this)">
+          <div class="template-card-icon">🔗</div>
+          <div class="template-card-name">Open URL</div>
+          <div class="template-card-desc">Open a URL in your browser on a schedule</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('template-modal')">Cancel</button>
+        <button id="tmpl-next-btn" class="btn btn-primary" onclick="tmplNext()" disabled>Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: configure -->
+    <div id="tmpl-step2" style="display:none;">
+      <h3 id="tmpl-step2-title">Configure Template</h3>
+      <div id="tmpl-config-fields" style="margin-bottom:4px;"></div>
+      <div class="form-row" style="margin-top:14px;">
+        <div class="form-group">
+          <label class="form-label">Worker Name</label>
+          <input type="text" id="tmpl-worker-name" class="form-input" placeholder="e.g. Daily Backup" />
+        </div>
+      </div>
+      <div class="form-group" style="margin:10px 0 8px;">
+        <label class="form-label">Schedule Type</label>
+        <div class="sched-toggle" id="tmpl-sched-toggle">
+          <button class="sched-toggle-btn active" onclick="setTmplSchedType('fixed', this)">Fixed Times</button>
+          <button class="sched-toggle-btn" onclick="setTmplSchedType('interval', this)">Interval</button>
+        </div>
+      </div>
+      <div id="tmpl-sched-fields"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="tmplBack()">← Back</button>
+        <button class="btn btn-ghost" onclick="closeModal('template-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmTemplate()">Create Worker</button>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <!-- History Modal -->
 <div class="modal-overlay" id="history-modal">
@@ -1476,6 +1569,279 @@ function renderLogs() {
 function clearLogDisplay() {
   logDisplayOffset = logEntries.length;
   renderLogs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Templates
+// ═══════════════════════════════════════════════════════════════
+let selectedTemplate = null;
+let tmplSchedType = 'fixed';
+let watcherRuleCount = 0;
+
+function openTemplateModal() {
+  selectedTemplate = null;
+  document.getElementById('tmpl-next-btn').disabled = true;
+  document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('tmpl-step1').style.display = '';
+  document.getElementById('tmpl-step2').style.display = 'none';
+  openModal('template-modal');
+}
+
+function selectTemplate(type, el) {
+  selectedTemplate = type;
+  document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('tmpl-next-btn').disabled = false;
+}
+
+function tmplNext() {
+  if (!selectedTemplate) return;
+  const titles = {
+    folder_backup:  'Folder Backup',
+    file_cleanup:   'File Cleanup',
+    folder_watcher: 'Folder Watcher',
+    uptime_check:   'Website Uptime Check',
+    open_url:       'Open URL',
+  };
+  document.getElementById('tmpl-step2-title').textContent = `Configure — ${titles[selectedTemplate]}`;
+  document.getElementById('tmpl-worker-name').value = '';
+  tmplSchedType = 'fixed';
+  document.querySelectorAll('#tmpl-sched-toggle .sched-toggle-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  renderTmplSchedFields('fixed', '');
+  renderTmplConfigFields(selectedTemplate);
+  document.getElementById('tmpl-step1').style.display = 'none';
+  document.getElementById('tmpl-step2').style.display = '';
+}
+
+function tmplBack() {
+  document.getElementById('tmpl-step1').style.display = '';
+  document.getElementById('tmpl-step2').style.display = 'none';
+}
+
+function renderTmplConfigFields(type) {
+  const el = document.getElementById('tmpl-config-fields');
+  if (type === 'folder_backup') {
+    el.innerHTML = `
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Source Folder</label>
+          <div class="input-with-btn">
+            <input type="text" id="tmpl-source" class="form-input" placeholder="/path/to/source" />
+            <button class="btn btn-ghost btn-sm" onclick="tmplBrowseDir('tmpl-source')">Browse</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Destination Folder</label>
+          <div class="input-with-btn">
+            <input type="text" id="tmpl-dest" class="form-input" placeholder="/path/to/backups" />
+            <button class="btn btn-ghost btn-sm" onclick="tmplBrowseDir('tmpl-dest')">Browse</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group" style="max-width:180px;margin-top:6px;">
+        <label class="form-label">Keep N copies</label>
+        <input type="number" id="tmpl-keep" class="form-input" value="3" min="1" max="99" />
+      </div>`;
+  } else if (type === 'file_cleanup') {
+    el.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Target Folder</label>
+        <div class="input-with-btn">
+          <input type="text" id="tmpl-folder" class="form-input" placeholder="/path/to/folder" />
+          <button class="btn btn-ghost btn-sm" onclick="tmplBrowseDir('tmpl-folder')">Browse</button>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:10px;">
+        <div class="form-group">
+          <label class="form-label">File Pattern</label>
+          <input type="text" id="tmpl-pattern" class="form-input" placeholder="*.tmp" value="*.tmp" />
+          <div class="sched-hint">e.g. *.tmp, *.log, report_*.csv</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Older Than (days)</label>
+          <input type="number" id="tmpl-days" class="form-input" value="7" min="1" />
+        </div>
+      </div>`;
+  } else if (type === 'folder_watcher') {
+    watcherRuleCount = 0;
+    el.innerHTML = `
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label">Watch Folder</label>
+        <div class="input-with-btn">
+          <input type="text" id="tmpl-watch" class="form-input" placeholder="/path/to/watch" />
+          <button class="btn btn-ghost btn-sm" onclick="tmplBrowseDir('tmpl-watch')">Browse</button>
+        </div>
+      </div>
+      <label class="form-label">Extension → Destination Rules</label>
+      <div id="watcher-rules" style="margin-top:6px;margin-bottom:4px;"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addWatcherRule()">＋ Add Rule</button>`;
+    addWatcherRule();
+  } else if (type === 'uptime_check') {
+    el.innerHTML = `
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label">URL to Monitor</label>
+        <input type="text" id="tmpl-url" class="form-input" placeholder="https://example.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Log File Path</label>
+        <div class="input-with-btn">
+          <input type="text" id="tmpl-logfile" class="form-input" placeholder="/path/to/uptime.log" />
+          <button class="btn btn-ghost btn-sm" onclick="tmplBrowseFile('tmpl-logfile')">Browse</button>
+        </div>
+        <div class="sched-hint">Results appended here; debug log shows ERROR alert if site is down</div>
+      </div>`;
+  } else if (type === 'open_url') {
+    el.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">URL to Open</label>
+        <input type="text" id="tmpl-url" class="form-input" placeholder="https://example.com" />
+        <div class="sched-hint">Opens in your default browser at the scheduled time</div>
+      </div>`;
+  }
+}
+
+function addWatcherRule() {
+  watcherRuleCount++;
+  const n = watcherRuleCount;
+  const container = document.getElementById('watcher-rules');
+  const row = document.createElement('div');
+  row.className = 'watcher-rule';
+  row.id = `watcher-rule-${n}`;
+  row.innerHTML = `
+    <input type="text" class="form-input watcher-ext" placeholder=".pdf" style="max-width:72px;" />
+    <span style="color:var(--text2);font-size:13px;flex-shrink:0;">→</span>
+    <div class="input-with-btn" style="flex:1;">
+      <input type="text" class="form-input watcher-dest" placeholder="/path/to/destination" />
+      <button class="btn btn-ghost btn-sm" onclick="tmplBrowseDirInto(${n})">Browse</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('watcher-rule-${n}').remove()" title="Remove">✕</button>`;
+  container.appendChild(row);
+}
+
+async function tmplBrowseDir(inputId) {
+  try {
+    const r = await fetch('/api/browse?mode=dir');
+    const d = await r.json();
+    if (d.path) document.getElementById(inputId).value = d.path;
+  } catch(e) { toast('Browse failed: ' + e, 'error'); }
+}
+
+async function tmplBrowseFile(inputId) {
+  try {
+    const r = await fetch('/api/browse?mode=file');
+    const d = await r.json();
+    if (d.path) document.getElementById(inputId).value = d.path;
+  } catch(e) { toast('Browse failed: ' + e, 'error'); }
+}
+
+async function tmplBrowseDirInto(ruleN) {
+  try {
+    const r = await fetch('/api/browse?mode=dir');
+    const d = await r.json();
+    if (d.path) {
+      const rule = document.getElementById(`watcher-rule-${ruleN}`);
+      if (rule) rule.querySelector('.watcher-dest').value = d.path;
+    }
+  } catch(e) { toast('Browse failed: ' + e, 'error'); }
+}
+
+function setTmplSchedType(type, btn) {
+  tmplSchedType = type;
+  document.querySelectorAll('#tmpl-sched-toggle .sched-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTmplSchedFields(type, '');
+}
+
+function renderTmplSchedFields(type, val) {
+  const el = document.getElementById('tmpl-sched-fields');
+  if (type === 'fixed') {
+    el.innerHTML = `
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label">Times (comma-separated, 24h)</label>
+        <input type="text" id="tmpl-sched-val" class="form-input" placeholder="09:00, 14:30" value="${escHtml(val||'')}" />
+        <div class="sched-hint">Fires daily at each listed time</div>
+      </div>`;
+  } else {
+    const h = (val||'').match(/(\d+)h/)?.[1] || '';
+    const m = (val||'').match(/(\d+)m/)?.[1] || '';
+    el.innerHTML = `
+      <div class="form-row three" style="margin-bottom:10px;">
+        <div class="form-group">
+          <label class="form-label">Hours</label>
+          <input type="number" id="tmpl-interval-h" class="form-input" placeholder="0" min="0" max="23" value="${escHtml(h)}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Minutes</label>
+          <input type="number" id="tmpl-interval-m" class="form-input" placeholder="30" min="0" max="59" value="${escHtml(m)}" />
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-top:20px;">
+          <div class="sched-hint">between runs</div>
+        </div>
+      </div>`;
+  }
+}
+
+function getTmplScheduleValue() {
+  if (tmplSchedType === 'fixed') return document.getElementById('tmpl-sched-val')?.value.trim() || '';
+  const h = parseInt(document.getElementById('tmpl-interval-h')?.value || '0') || 0;
+  const m = parseInt(document.getElementById('tmpl-interval-m')?.value || '0') || 0;
+  return `${h}h ${m}m`;
+}
+
+async function confirmTemplate() {
+  const workerName = document.getElementById('tmpl-worker-name').value.trim();
+  if (!workerName) { toast('Enter a worker name.', 'error'); return; }
+
+  let config = {};
+  if (selectedTemplate === 'folder_backup') {
+    const source = document.getElementById('tmpl-source')?.value.trim();
+    const dest   = document.getElementById('tmpl-dest')?.value.trim();
+    if (!source || !dest) { toast('Source and destination folders required.', 'error'); return; }
+    config = { source, dest, keep: document.getElementById('tmpl-keep')?.value || '3' };
+  } else if (selectedTemplate === 'file_cleanup') {
+    const folder = document.getElementById('tmpl-folder')?.value.trim();
+    if (!folder) { toast('Target folder required.', 'error'); return; }
+    config = { folder, pattern: document.getElementById('tmpl-pattern')?.value.trim() || '*.tmp',
+                days: document.getElementById('tmpl-days')?.value || '7' };
+  } else if (selectedTemplate === 'folder_watcher') {
+    const watch = document.getElementById('tmpl-watch')?.value.trim();
+    if (!watch) { toast('Watch folder required.', 'error'); return; }
+    const rules = [];
+    document.querySelectorAll('.watcher-rule').forEach(row => {
+      const ext  = row.querySelector('.watcher-ext')?.value.trim();
+      const dest = row.querySelector('.watcher-dest')?.value.trim();
+      if (ext && dest) rules.push({ ext, dest });
+    });
+    if (!rules.length) { toast('Add at least one extension rule.', 'error'); return; }
+    config = { watch, rules };
+  } else if (selectedTemplate === 'uptime_check') {
+    const url     = document.getElementById('tmpl-url')?.value.trim();
+    const logFile = document.getElementById('tmpl-logfile')?.value.trim();
+    if (!url || !logFile) { toast('URL and log file path required.', 'error'); return; }
+    config = { url, log_file: logFile };
+  } else if (selectedTemplate === 'open_url') {
+    const url = document.getElementById('tmpl-url')?.value.trim();
+    if (!url) { toast('URL required.', 'error'); return; }
+    config = { url };
+  }
+
+  try {
+    const r = await fetch('/api/templates', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ template_type: selectedTemplate, config,
+                             worker_name: workerName, sched_type: tmplSchedType,
+                             sched_value: getTmplScheduleValue() }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      toast(`Worker "${workerName}" created from template.`, 'ok');
+      closeModal('template-modal');
+      refreshWorkers();
+    } else {
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Failed: ' + e, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════════

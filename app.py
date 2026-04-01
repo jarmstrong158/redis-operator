@@ -34,6 +34,120 @@ DB_PATH = BASE_DIR / "redis_operator.db"
 STATIC_DIR = BASE_DIR / "static"
 DB_URL = f"sqlite:///{DB_PATH}"
 ENV_PATH = BASE_DIR / ".env"
+TEMPLATES_DIR = BASE_DIR / "templates" / "generated"
+
+# ---------------------------------------------------------------------------
+# Template script generators
+# ---------------------------------------------------------------------------
+def _gen_folder_backup(cfg: dict) -> str:
+    source = cfg.get("source", "")
+    dest   = cfg.get("dest", "")
+    keep   = int(cfg.get("keep", 3))
+    return f'''import shutil, os, datetime
+
+SOURCE = r"{source}"
+DEST   = r"{dest}"
+KEEP   = {keep}
+
+def run():
+    ts  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    dst = os.path.join(DEST, f"backup_{{ts}}")
+    os.makedirs(DEST, exist_ok=True)
+    shutil.copytree(SOURCE, dst)
+    backups = sorted(
+        os.path.join(DEST, d) for d in os.listdir(DEST)
+        if d.startswith("backup_") and os.path.isdir(os.path.join(DEST, d))
+    )
+    while len(backups) > KEEP:
+        shutil.rmtree(backups.pop(0))
+    print(f"Backup complete: {{dst}} ({{len(backups)}}/{{KEEP}} copies)")
+'''
+
+def _gen_file_cleanup(cfg: dict) -> str:
+    folder  = cfg.get("folder", "")
+    pattern = cfg.get("pattern", "*.tmp")
+    days    = int(cfg.get("days", 7))
+    return f'''import glob, os, time
+
+FOLDER  = r"{folder}"
+PATTERN = "{pattern}"
+DAYS    = {days}
+
+def run():
+    cutoff = time.time() - (DAYS * 86400)
+    removed = 0
+    for f in glob.glob(os.path.join(FOLDER, PATTERN)):
+        if os.path.isfile(f) and os.path.getmtime(f) < cutoff:
+            os.remove(f)
+            removed += 1
+    print(f"Cleanup: {{removed}} file(s) removed matching {{PATTERN}} older than {{DAYS}} days")
+'''
+
+def _gen_folder_watcher(cfg: dict) -> str:
+    watch = cfg.get("watch", "")
+    rules = cfg.get("rules", [])
+    rules_dict = {r["ext"].lower(): r["dest"] for r in rules if r.get("ext") and r.get("dest")}
+    return f'''import os, shutil
+
+WATCH = r"{watch}"
+RULES = {repr(rules_dict)}  # {{".ext": r"destination_folder"}}
+
+def run():
+    moved = 0
+    for fname in os.listdir(WATCH):
+        fpath = os.path.join(WATCH, fname)
+        if not os.path.isfile(fpath):
+            continue
+        ext = os.path.splitext(fname)[1].lower()
+        if ext in RULES:
+            dest = RULES[ext]
+            os.makedirs(dest, exist_ok=True)
+            shutil.move(fpath, os.path.join(dest, fname))
+            moved += 1
+    print(f"Folder watcher: {{moved}} file(s) moved")
+'''
+
+def _gen_uptime_check(cfg: dict) -> str:
+    url      = cfg.get("url", "")
+    log_file = cfg.get("log_file", "")
+    return f'''import urllib.request, datetime, os
+
+URL      = "{url}"
+LOG_FILE = r"{log_file}"
+
+def run():
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        urllib.request.urlopen(URL, timeout=10)
+        status = "UP"
+    except Exception as e:
+        status = f"DOWN: {{e}}"
+    os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
+    with open(LOG_FILE, "a") as f:
+        f.write(f"[{{ts}}] {{URL}} — {{status}}\\n")
+    print(f"[{{ts}}] {{URL}} — {{status}}")
+    if status.startswith("DOWN"):
+        raise RuntimeError(f"Site down: {{URL}} — {{status}}")
+'''
+
+def _gen_open_url(cfg: dict) -> str:
+    url = cfg.get("url", "")
+    return f'''import webbrowser
+
+URL = "{url}"
+
+def run():
+    webbrowser.open(URL)
+    print(f"Opened: {{URL}}")
+'''
+
+TEMPLATE_GENERATORS = {
+    "folder_backup":  _gen_folder_backup,
+    "file_cleanup":   _gen_file_cleanup,
+    "folder_watcher": _gen_folder_watcher,
+    "uptime_check":   _gen_uptime_check,
+    "open_url":       _gen_open_url,
+}
 
 def _load_dotenv():
     """Load KEY=VALUE pairs from .env into os.environ (only for unset keys)."""
@@ -654,6 +768,38 @@ def delete_profile(profile_id):
     add_log("INFO", f"Profile '{row['name']}' deleted.")
     return jsonify({"ok": True})
 
+# --- Templates ---
+@app.route("/api/templates", methods=["POST"])
+def create_from_template():
+    data          = request.get_json()
+    template_type = data.get("template_type", "")
+    config        = data.get("config", {})
+    worker_name   = data.get("worker_name", "").strip()
+    sched_type    = data.get("sched_type", "fixed")
+    sched_value   = data.get("sched_value", "09:00").strip()
+
+    if not worker_name:
+        return jsonify({"error": "Worker name required"}), 400
+    if template_type not in TEMPLATE_GENERATORS:
+        return jsonify({"error": f"Unknown template type: {template_type}"}), 400
+
+    script_content = TEMPLATE_GENERATORS[template_type](config)
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in worker_name.lower())
+    script_path = TEMPLATES_DIR / f"{safe_name}_{template_type}.py"
+    script_path.write_text(script_content, encoding="utf-8")
+
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO workers (name, task_path, sched_type, sched_value) VALUES (?,?,?,?)",
+            (worker_name, str(script_path), sched_type, sched_value),
+        )
+        worker_id = cur.lastrowid
+        conn.commit()
+
+    register_worker_jobs(worker_id, str(script_path), sched_type, sched_value, "")
+    add_log("INFO", f"Worker '{worker_name}' created from template '{template_type}' (id={worker_id}).")
+    return jsonify({"ok": True, "worker_id": worker_id}), 201
+
 # --- AI Analysis ---
 @app.route("/api/api-key-status", methods=["GET"])
 def api_key_status():
@@ -764,6 +910,7 @@ def restore_workers():
 def create_app():
     global scheduler
     _load_dotenv()
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     redis_result = start_redis()
     if not redis_result["ok"]:

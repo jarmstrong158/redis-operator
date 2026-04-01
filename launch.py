@@ -49,7 +49,7 @@ def main():
     flask_thread.start()
 
     # Wait for server to be ready
-    if wait_for_server(timeout=15):
+    if wait_for_server(timeout=30):
         print(f"  Server ready. Opening browser...")
         webbrowser.open(URL)
     else:

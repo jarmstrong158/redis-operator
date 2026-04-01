@@ -1140,6 +1140,7 @@
       <div class="sched-toggle" id="edit-sched-toggle">
         <button class="sched-toggle-btn active" onclick="setEditSchedType('fixed', this)">Fixed Times</button>
         <button class="sched-toggle-btn" onclick="setEditSchedType('interval', this)">Interval</button>
+        <button class="sched-toggle-btn" onclick="setEditSchedType('cron', this)">Cron</button>
       </div>
     </div>
     <div id="edit-sched-fields" style="margin-bottom:12px;"></div>
@@ -1240,6 +1241,7 @@
       <div class="sched-toggle" id="chain-sched-toggle">
         <button class="sched-toggle-btn active" onclick="setChainSchedType('fixed', this)">Fixed Times</button>
         <button class="sched-toggle-btn" onclick="setChainSchedType('interval', this)">Interval</button>
+        <button class="sched-toggle-btn" onclick="setChainSchedType('cron', this)">Cron</button>
       </div>
     </div>
     <div id="chain-sched-fields" style="margin-bottom:14px;"></div>
@@ -1368,6 +1370,8 @@ function addWorkerCard(prefill = null) {
                 onclick="setSchedType(${n}, 'fixed', this)">Fixed Times</button>
         <button class="sched-toggle-btn ${schedType==='interval'?'active':''}"
                 onclick="setSchedType(${n}, 'interval', this)">Interval</button>
+        <button class="sched-toggle-btn ${schedType==='cron'?'active':''}"
+                onclick="setSchedType(${n}, 'cron', this)">Cron</button>
       </div>
     </div>
 
@@ -1429,6 +1433,20 @@ function renderSchedFields(n, type, val) {
         <div class="sched-hint">e.g. 09:00, 14:30, 17:00 — fires daily at each listed time</div>
       </div>
     `;
+  } else if (type === 'cron') {
+    return `
+      <div class="form-group">
+        <label class="form-label">Cron Expression</label>
+        <input type="text" class="form-input wc-sched-val" placeholder="0 9 * * 1-5"
+               value="${escHtml(val)}" oninput="updateCronPreview(this)" />
+        <div class="sched-hint" style="margin-top:2px;">min hour day month weekday &nbsp;·&nbsp;
+          <a href="https://crontab.guru" target="_blank" style="color:var(--accent);text-decoration:none;">crontab.guru</a>
+        </div>
+        <div class="cron-preview" style="margin-top:4px;font-size:11px;color:var(--green);font-family:var(--mono);min-height:14px;">
+          ${escHtml(cronToEnglish(val))}
+        </div>
+      </div>
+    `;
   } else {
     const hMatch = val.match(/(\d+)h/);
     const mMatch = val.match(/(\d+)m/);
@@ -1483,7 +1501,7 @@ function getCardsData() {
     const type    = card.dataset.schedType || 'fixed';
     let schedVal  = '';
 
-    if (type === 'fixed') {
+    if (type === 'fixed' || type === 'cron') {
       schedVal = card.querySelector('.wc-sched-val')?.value.trim() || '';
     } else {
       const h = parseInt(card.querySelector('.wc-interval-h')?.value || '0') || 0;
@@ -2330,7 +2348,8 @@ function setEditSchedType(type, btn, val) {
   if (btn) {
     btn.classList.add('active');
   } else {
-    toggle.querySelectorAll('.sched-toggle-btn')[type === 'fixed' ? 0 : 1].classList.add('active');
+    const idx = type === 'fixed' ? 0 : type === 'interval' ? 1 : 2;
+    toggle.querySelectorAll('.sched-toggle-btn')[idx]?.classList.add('active');
   }
   const fields = document.getElementById('edit-sched-fields');
   if (type === 'fixed') {
@@ -2340,6 +2359,19 @@ function setEditSchedType(type, btn, val) {
         <input type="text" id="edit-sched-val" class="form-input" placeholder="09:00, 14:30, 17:00"
                value="${escHtml(val || '')}" />
         <div class="sched-hint">e.g. 09:00, 14:30, 17:00 — fires daily at each listed time</div>
+      </div>`;
+  } else if (type === 'cron') {
+    fields.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Cron Expression</label>
+        <input type="text" id="edit-sched-val" class="form-input" placeholder="0 9 * * 1-5"
+               value="${escHtml(val || '')}" oninput="updateCronPreview(this)" />
+        <div class="sched-hint">min hour day month weekday &nbsp;·&nbsp;
+          <a href="https://crontab.guru" target="_blank" style="color:var(--accent);text-decoration:none;">crontab.guru</a>
+        </div>
+        <div class="cron-preview" style="margin-top:4px;font-size:11px;color:var(--green);font-family:var(--mono);min-height:14px;">
+          ${escHtml(cronToEnglish(val || ''))}
+        </div>
       </div>`;
   } else {
     const h = (val || '').match(/(\d+)h/)?.[1] || '';
@@ -2379,7 +2411,7 @@ async function confirmEditWorker() {
   if (!name || !path) { toast('Name and task path are required.', 'error'); return; }
 
   let schedVal = '';
-  if (editSchedType === 'fixed') {
+  if (editSchedType === 'fixed' || editSchedType === 'cron') {
     schedVal = document.getElementById('edit-sched-val')?.value.trim() || '';
   } else {
     const h = parseInt(document.getElementById('edit-interval-h')?.value || '0') || 0;
@@ -2567,6 +2599,19 @@ function renderChainSchedFields(type, val) {
         <input type="text" id="chain-sched-val" class="form-input" placeholder="09:00, 14:30" value="${escHtml(val||'')}" />
         <div class="sched-hint">Fires daily at each listed time</div>
       </div>`;
+  } else if (type === 'cron') {
+    el.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Cron Expression</label>
+        <input type="text" id="chain-sched-val" class="form-input" placeholder="0 9 * * 1-5"
+               value="${escHtml(val||'')}" oninput="updateCronPreview(this)" />
+        <div class="sched-hint">min hour day month weekday &nbsp;·&nbsp;
+          <a href="https://crontab.guru" target="_blank" style="color:var(--accent);text-decoration:none;">crontab.guru</a>
+        </div>
+        <div class="cron-preview" style="margin-top:4px;font-size:11px;color:var(--green);font-family:var(--mono);min-height:14px;">
+          ${escHtml(cronToEnglish(val||''))}
+        </div>
+      </div>`;
   } else {
     const h = (val||'').match(/(\d+)h/)?.[1] || '';
     const m = (val||'').match(/(\d+)m/)?.[1] || '';
@@ -2588,7 +2633,8 @@ function renderChainSchedFields(type, val) {
 }
 
 function getChainSchedValue() {
-  if (chainSchedType === 'fixed') return document.getElementById('chain-sched-val')?.value.trim() || '';
+  if (chainSchedType === 'fixed' || chainSchedType === 'cron')
+    return document.getElementById('chain-sched-val')?.value.trim() || '';
   const h = parseInt(document.getElementById('chain-interval-h')?.value || '0') || 0;
   const m = parseInt(document.getElementById('chain-interval-m')?.value || '0') || 0;
   return `${h}h ${m}m`;
@@ -2686,7 +2732,9 @@ function editChain(id) {
   chainSchedType = c.sched_type;
   document.querySelectorAll('#chain-sched-toggle .sched-toggle-btn').forEach((b, i) => {
     b.classList.toggle('active',
-      (i === 0 && c.sched_type === 'fixed') || (i === 1 && c.sched_type === 'interval'));
+      (i === 0 && c.sched_type === 'fixed') ||
+      (i === 1 && c.sched_type === 'interval') ||
+      (i === 2 && c.sched_type === 'cron'));
   });
   renderChainSchedFields(c.sched_type, c.sched_value);
   (c.steps || []).forEach(s => addChainStep(s.task_path));
@@ -2779,6 +2827,66 @@ async function runAnalysis(errors) {
 
 function closeAiPanel() {
   document.getElementById('ai-panel').classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cron helpers
+// ═══════════════════════════════════════════════════════════════
+function cronToEnglish(expr) {
+  if (!expr || !expr.trim()) return '';
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return parts.length ? 'Enter all 5 fields: min hour day month weekday' : '';
+  const [min, hour, dom, month, dow] = parts;
+
+  const pad = n => String(n).padStart(2, '0');
+  const fmtTime = (h, m) => `${pad(h)}:${pad(m)}`;
+  const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['','January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+
+  // Every minute
+  if (min === '*' && hour === '*' && dom === '*' && month === '*' && dow === '*')
+    return 'Every minute';
+
+  // Every N minutes
+  const everyMin = min.match(/^\*\/(\d+)$/);
+  if (everyMin && hour === '*' && dom === '*' && month === '*' && dow === '*')
+    return `Every ${everyMin[1]} minutes`;
+
+  // Every hour at :MM
+  if (hour === '*' && dom === '*' && month === '*' && dow === '*' && /^\d+$/.test(min))
+    return `Every hour at :${pad(parseInt(min))}`;
+
+  // Build time string for fixed hour+min
+  const fixedTime = /^\d+$/.test(min) && /^\d+$/.test(hour)
+    ? fmtTime(parseInt(hour), parseInt(min)) : null;
+
+  if (fixedTime) {
+    // Weekdays
+    if (dom === '*' && month === '*' && dow === '1-5') return `Weekdays at ${fixedTime}`;
+    if (dom === '*' && month === '*' && dow === 'MON-FRI') return `Weekdays at ${fixedTime}`;
+    // Weekends
+    if (dom === '*' && month === '*' && (dow === '0,6' || dow === '6,0' || dow === 'SAT,SUN'))
+      return `Weekends at ${fixedTime}`;
+    // Specific weekday
+    if (dom === '*' && month === '*' && /^\d$/.test(dow))
+      return `Every ${DAYS[parseInt(dow)] || 'weekday'} at ${fixedTime}`;
+    // Daily
+    if (dom === '*' && month === '*' && dow === '*') return `Daily at ${fixedTime}`;
+    // Monthly on day N
+    if (/^\d+$/.test(dom) && month === '*' && dow === '*')
+      return `Monthly on the ${dom} at ${fixedTime}`;
+    // Specific month + day
+    if (/^\d+$/.test(dom) && /^\d+$/.test(month) && dow === '*')
+      return `Yearly on ${MONTHS[parseInt(month)] || month} ${dom} at ${fixedTime}`;
+  }
+
+  return expr.trim();
+}
+
+function updateCronPreview(input) {
+  const preview = input.closest('.form-group')?.querySelector('.cron-preview');
+  if (preview) preview.textContent = cronToEnglish(input.value);
 }
 
 // ═══════════════════════════════════════════════════════════════

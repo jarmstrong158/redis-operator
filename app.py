@@ -455,6 +455,8 @@ def _make_triggers(sched_type: str, sched_value: str):
         for i, t in enumerate(times):
             h, m = t.split(":")
             triggers.append((CronTrigger(hour=int(h), minute=int(m)), f"t{i}"))
+    elif sched_type == "cron":
+        triggers.append((CronTrigger.from_crontab(sched_value), "c0"))
     else:  # interval
         # sched_value format: "Xh Ym" or "Xh" or "Ym"
         hours, minutes = 0, 0
@@ -825,6 +827,8 @@ def list_workers():
 def _schedule_display(sched_type, sched_value):
     if sched_type == "fixed":
         return f"Fixed: {sched_value}"
+    if sched_type == "cron":
+        return f"Cron: {sched_value}"
     return f"Every {sched_value}"
 
 def _install_for_worker(name: str, task_path: str, requirements: str):

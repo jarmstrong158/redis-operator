@@ -44,7 +44,7 @@ Source: "dist\Redis Operator\*"; DestDir: "{app}"; Flags: ignoreversion recurses
 [Icons]
 Name: "{group}\{#AppName}";                        Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}";              Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#AppName}";                Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{userdesktop}\{#AppName}";                  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Registry]
 ; Auto-start at login (optional task)

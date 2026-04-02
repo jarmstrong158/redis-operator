@@ -47,12 +47,20 @@ echo [3/5] Generating icon...
 %PYTHON% build_icon.py
 if errorlevel 1 ( echo ERROR: Icon generation failed. & pause & exit /b 1 )
 
-:: PyInstaller build
+:: PyInstaller build — skip if exe already exists (pass --rebuild to force)
 echo.
+if exist "dist\Redis Operator\Redis Operator.exe" (
+    echo %* | find /i "--rebuild" >nul
+    if errorlevel 1 (
+        echo [4/5] Executable already built — skipping. Pass --rebuild to force.
+        goto :inno
+    )
+)
 echo [4/5] Building executable (this takes a minute)...
 %PYINSTALLER% redis_operator.spec --clean --noconfirm
 if errorlevel 1 ( echo ERROR: PyInstaller build failed. & pause & exit /b 1 )
 echo       Executable built: dist\Redis Operator\Redis Operator.exe
+:inno
 
 :: Find Inno Setup — PATH first, then brute-force every drive letter
 echo.

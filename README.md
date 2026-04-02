@@ -2,7 +2,7 @@
 
 A local web dashboard for managing scheduled Python and batch workers via Redis + APScheduler. Register tasks, set schedules, and monitor everything from the browser — no terminal needed after launch.
 
-![Redis Operator Dashboard](screenshot.png)
+![Redis Operator Dashboard](Readmejpegs/Screenshot%202026-04-01%20210159.png)
 
 ## Features
 
@@ -26,6 +26,26 @@ A local web dashboard for managing scheduled Python and batch workers via Redis 
 - **Debug Log** — live scrolling log panel with color-coded entries (INFO, OK, FIRE, MANUAL, ERROR, PAUSE, DELETE). Filter by level pill or keyword search. Auto-scroll toggle and clear display.
 - **Redis Auto-Start** — detects whether Redis is already running; starts it automatically if not. The Windows installer bundles Redis — no separate install needed.
 - **Persistent State** — all workers, chains, groups, and profiles stored in SQLite. Workers and chains automatically restore on restart.
+
+### Add Workers Form
+
+![Add Workers form](Readmejpegs/Screenshot%202026-04-01%20210231.png)
+
+### Built-in Templates
+
+![Template picker modal](Readmejpegs/Screenshot%202026-04-01%20210243.png)
+
+### Task Chains
+
+![New Task Chain modal](Readmejpegs/Screenshot%202026-04-01%20210257.png)
+
+### Debug Log
+
+![Debug log panel](Readmejpegs/Screenshot%202026-04-01%20210327.png)
+
+### Windows Installer
+
+![Windows installer — Select Additional Tasks step](Readmejpegs/Screenshot%202026-04-01%20210345.png)
 
 ## Installation (Windows — recommended)
 

@@ -35,22 +35,28 @@ if errorlevel 1 (
     echo       PyInstaller OK.
 )
 
+:: Download bundled Redis
+echo.
+echo [2/5] Downloading Redis server (bundled, no install needed by end users)...
+%PYTHON% download_redis.py
+if errorlevel 1 ( echo ERROR: Redis download failed. & pause & exit /b 1 )
+
 :: Generate icon
 echo.
-echo [2/4] Generating icon...
+echo [3/5] Generating icon...
 %PYTHON% build_icon.py
 if errorlevel 1 ( echo ERROR: Icon generation failed. & pause & exit /b 1 )
 
 :: PyInstaller build
 echo.
-echo [3/4] Building executable (this takes a minute)...
+echo [4/5] Building executable (this takes a minute)...
 %PYINSTALLER% redis_operator.spec --clean --noconfirm
 if errorlevel 1 ( echo ERROR: PyInstaller build failed. & pause & exit /b 1 )
 echo       Executable built: dist\Redis Operator\Redis Operator.exe
 
 :: Find Inno Setup
 echo.
-echo [4/4] Building installer...
+echo [5/5] Building installer...
 set ISCC=
 for %%p in (
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"

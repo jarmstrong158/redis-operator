@@ -12,6 +12,7 @@ dist/
 build/
 Output/
 redis_operator.ico
+redis_bundled/
 *.spec.bak
 .idea/
 .vscode/

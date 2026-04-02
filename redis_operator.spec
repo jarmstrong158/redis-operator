@@ -9,8 +9,9 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('static',  'static'),
-        ('tasks',   'tasks'),
+        ('static',        'static'),
+        ('tasks',         'tasks'),
+        ('redis_bundled', 'redis_bundled'),
     ],
     hiddenimports=[
         # Flask / Werkzeug

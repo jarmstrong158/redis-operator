@@ -294,23 +294,27 @@ def start_redis() -> dict:
         _redis_client = redis.Redis(host="127.0.0.1", port=6379, decode_responses=True)
         return {"ok": True, "message": "Redis already running."}
 
-    # Determine binary name
-    binary = "redis-server.exe" if sys.platform == "win32" else "redis-server"
-
-    # Check if binary is on PATH
-    import shutil
-    if not shutil.which(binary):
-        msg = (
-            f"redis-server not found on PATH.\n\n"
-            f"Install Redis:\n"
-            f"  Windows : https://github.com/tporadowski/redis/releases\n"
-            f"            or: winget install Redis.Redis\n"
-            f"  macOS   : brew install redis\n"
-            f"  Ubuntu  : sudo apt install redis-server\n\n"
-            f"After installing, ensure '{binary}' is on your system PATH, then restart Redis Operator."
-        )
-        add_log("ERROR", msg)
-        return {"ok": False, "message": msg}
+    # Determine binary — prefer bundled copy, fall back to PATH
+    binary_name = "redis-server.exe" if sys.platform == "win32" else "redis-server"
+    bundled = BASE_DIR / "redis_bundled" / binary_name
+    if bundled.exists():
+        binary = str(bundled)
+        add_log("INFO", "Using bundled redis-server.")
+    else:
+        import shutil
+        binary = shutil.which(binary_name)
+        if not binary:
+            msg = (
+                f"redis-server not found.\n\n"
+                f"Install Redis:\n"
+                f"  Windows : https://github.com/tporadowski/redis/releases\n"
+                f"            or: winget install Redis.Redis\n"
+                f"  macOS   : brew install redis\n"
+                f"  Ubuntu  : sudo apt install redis-server\n\n"
+                f"After installing, ensure '{binary_name}' is on your system PATH, then restart."
+            )
+            add_log("ERROR", msg)
+            return {"ok": False, "message": msg}
 
     try:
         _redis_proc = subprocess.Popen(

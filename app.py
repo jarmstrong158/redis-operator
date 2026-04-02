@@ -18,6 +18,8 @@ import signal
 import atexit
 import sysconfig
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import groupby
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
@@ -411,9 +413,16 @@ def init_db():
                 chain_id    INTEGER NOT NULL,
                 order_index INTEGER NOT NULL,
                 task_path   TEXT NOT NULL,
+                stage       INTEGER DEFAULT 0,
                 FOREIGN KEY (chain_id) REFERENCES chains(id) ON DELETE CASCADE
             )
         """)
+        # Migrate chain_steps: add stage column to existing DBs
+        existing_step_cols = {row[1] for row in conn.execute("PRAGMA table_info(chain_steps)")}
+        if "stage" not in existing_step_cols:
+            conn.execute("ALTER TABLE chain_steps ADD COLUMN stage INTEGER DEFAULT 0")
+            # Each existing step gets its own stage so old chains stay sequential
+            conn.execute("UPDATE chain_steps SET stage = order_index")
 
         # ── V2: run history (workers + chains share this table) ────────────
         conn.execute("""
@@ -653,12 +662,32 @@ def _remaining_today(worker_id: int) -> int:
 # ---------------------------------------------------------------------------
 # Chain runner and scheduler
 # ---------------------------------------------------------------------------
+def _run_one_chain_step(chain_name: str, step_label: str, task_path: str):
+    """Execute a single chain step subprocess. Returns (success, error_str, duration_s)."""
+    t0 = time.time()
+    ext = Path(task_path).suffix.lower()
+    if ext == ".py":
+        result = subprocess.run([sys.executable, task_path], capture_output=True, text=True)
+        if result.returncode != 0 and "ModuleNotFoundError" in result.stderr:
+            missing = _extract_missing_module(result.stderr)
+            if missing and _pip_install([missing], context=f"Chain '{chain_name}' {step_label}"):
+                add_log("INFO", f"Chain '{chain_name}' — {step_label} retrying after install...")
+                result = subprocess.run([sys.executable, task_path], capture_output=True, text=True)
+    elif ext in (".bat", ".sh", ".cmd"):
+        result = subprocess.run([task_path], capture_output=True, text=True)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
+    return time.time() - t0
+
+
 def _chain_runner(chain_id: int, trigger_type: str = "scheduled"):
-    """Run chain steps sequentially via subprocess."""
+    """Run chain steps. Steps with the same stage number run in parallel; stages run sequentially."""
     with get_db() as conn:
         chain = conn.execute("SELECT * FROM chains WHERE id=?", (chain_id,)).fetchone()
         steps = conn.execute(
-            "SELECT * FROM chain_steps WHERE chain_id=? ORDER BY order_index",
+            "SELECT * FROM chain_steps WHERE chain_id=? ORDER BY stage, order_index",
             (chain_id,),
         ).fetchall()
     if not chain or not steps:
@@ -673,45 +702,50 @@ def _chain_runner(chain_id: int, trigger_type: str = "scheduled"):
 
     overall_success = True
     last_error      = ""
+    step_num        = 0  # running counter for display
 
-    for i, step in enumerate(steps, start=1):
-        task_path = step["task_path"]
-        basename  = os.path.basename(task_path)
-        step_t0   = time.time()
-        add_log("INFO", f"Chain '{name}' — step {i}/{total}: {basename}")
-        try:
-            ext = Path(task_path).suffix.lower()
-            if ext == ".py":
-                result = subprocess.run(
-                    [sys.executable, task_path],
-                    capture_output=True, text=True,
-                )
-                # Auto-install missing module and retry once
-                if result.returncode != 0 and "ModuleNotFoundError" in result.stderr:
-                    missing = _extract_missing_module(result.stderr)
-                    if missing and _pip_install([missing], context=f"Chain '{name}' step {i}"):
-                        add_log("INFO", f"Chain '{name}' — step {i} retrying after install...")
-                        result = subprocess.run(
-                            [sys.executable, task_path],
-                            capture_output=True, text=True,
-                        )
-            elif ext in (".bat", ".sh", ".cmd"):
-                result = subprocess.run(
-                    [task_path], capture_output=True, text=True,
-                )
-            else:
-                raise ValueError(f"Unsupported file type: {ext}")
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip() or f"exit code {result.returncode}")
-            add_log("OK", f"Chain '{name}' — step {i}/{total} completed in {time.time()-step_t0:.1f}s")
-        except Exception:
-            tb = traceback.format_exc()
-            last_error      = tb
-            overall_success = False
-            add_log("ERROR", f"Chain '{name}' — step {i}/{total} FAILED\n{tb}")
-            if stop_on_fail:
-                add_log("INFO", f"Chain '{name}' stopped at step {i} (stop-on-failure)")
-                break
+    # Group steps by stage (already sorted by stage, order_index above)
+    stage_groups = [(stg, list(grp)) for stg, grp in groupby(steps, key=lambda s: s["stage"])]
+
+    for stage_num, stage_steps in stage_groups:
+        if not overall_success and stop_on_fail:
+            break
+        parallel = len(stage_steps) > 1
+        if parallel:
+            add_log("INFO", f"Chain '{name}' — stage {stage_num}: {len(stage_steps)} steps in parallel")
+
+        def _run_step(step, sn=step_num):
+            """Thread target — runs one step, logs, returns (success, err)."""
+            task_path = step["task_path"]
+            basename  = os.path.basename(task_path)
+            label     = f"step {sn + 1}/{total}"
+            add_log("INFO", f"Chain '{name}' — {label}: {basename}")
+            try:
+                elapsed = _run_one_chain_step(name, label, task_path)
+                add_log("OK", f"Chain '{name}' — {label} completed in {elapsed:.1f}s")
+                return True, ""
+            except Exception:
+                tb = traceback.format_exc()
+                add_log("ERROR", f"Chain '{name}' — {label} FAILED\n{tb}")
+                return False, tb
+
+        step_num += len(stage_steps)
+
+        if parallel:
+            with ThreadPoolExecutor(max_workers=len(stage_steps)) as ex:
+                futures = {ex.submit(_run_step, step): step for step in stage_steps}
+                for fut in as_completed(futures):
+                    ok, err = fut.result()
+                    if not ok:
+                        overall_success = False
+                        last_error = err
+        else:
+            ok, err = _run_step(stage_steps[0])
+            if not ok:
+                overall_success = False
+                last_error = err
+                if stop_on_fail:
+                    add_log("INFO", f"Chain '{name}' stopped (stop-on-failure)")
 
     duration_ms = int((time.time() - t0) * 1000)
     if overall_success:
@@ -1245,9 +1279,10 @@ def add_chain():
                 continue
             if not os.path.isabs(task_path):
                 task_path = os.path.abspath(task_path)
+            stage = int(step.get("stage", i))
             conn.execute(
-                "INSERT INTO chain_steps (chain_id, order_index, task_path) VALUES (?,?,?)",
-                (chain_id, i, task_path),
+                "INSERT INTO chain_steps (chain_id, order_index, task_path, stage) VALUES (?,?,?,?)",
+                (chain_id, i, task_path, stage),
             )
         conn.commit()
 
@@ -1286,9 +1321,10 @@ def update_chain(chain_id):
                 continue
             if not os.path.isabs(task_path):
                 task_path = os.path.abspath(task_path)
+            stage = int(step.get("stage", i))
             conn.execute(
-                "INSERT INTO chain_steps (chain_id, order_index, task_path) VALUES (?,?,?)",
-                (chain_id, i, task_path),
+                "INSERT INTO chain_steps (chain_id, order_index, task_path, stage) VALUES (?,?,?,?)",
+                (chain_id, i, task_path, stage),
             )
         conn.commit()
 
@@ -1447,7 +1483,7 @@ def export_data():
     steps_by_chain = {}
     for s in steps:
         steps_by_chain.setdefault(s["chain_id"], []).append(
-            {"task_path": s["task_path"], "order_index": s["order_index"]}
+            {"task_path": s["task_path"], "order_index": s["order_index"], "stage": s["stage"]}
         )
 
     payload = {
@@ -1583,9 +1619,10 @@ def import_data():
             for i, step in enumerate(steps):
                 tp = step.get("task_path", "")
                 if tp:
+                    stage = int(step.get("stage", i))
                     conn.execute(
-                        "INSERT INTO chain_steps (chain_id, order_index, task_path) VALUES (?,?,?)",
-                        (chain_id, i, tp),
+                        "INSERT INTO chain_steps (chain_id, order_index, task_path, stage) VALUES (?,?,?,?)",
+                        (chain_id, i, tp, stage),
                     )
             conn.commit()
         if not paused:
@@ -1605,6 +1642,52 @@ def import_data():
         "imported_groups":   imported_groups,
         "skipped":           skipped,
     })
+
+# --- Windows startup (Task Scheduler) ---
+_TASK_NAME = "Redis Operator"
+
+def _schtasks(*args):
+    """Run a schtasks command, return (returncode, stdout, stderr)."""
+    result = subprocess.run(
+        ["schtasks"] + list(args),
+        capture_output=True, text=True,
+    )
+    return result.returncode, result.stdout, result.stderr
+
+@app.route("/api/service/status", methods=["GET"])
+def service_status():
+    if sys.platform != "win32":
+        return jsonify({"installed": False, "supported": False})
+    rc, out, _ = _schtasks("/query", "/tn", _TASK_NAME, "/fo", "LIST")
+    return jsonify({"installed": rc == 0, "supported": True})
+
+@app.route("/api/service/install", methods=["POST"])
+def service_install():
+    if sys.platform != "win32":
+        return jsonify({"error": "Only supported on Windows"}), 400
+    python_exe = sys.executable
+    launch_py  = str(BASE_DIR / "launch.py")
+    cmd = f'"{python_exe}" "{launch_py}"'
+    rc, out, err = _schtasks(
+        "/create", "/tn", _TASK_NAME,
+        "/tr", cmd,
+        "/sc", "ONLOGON",
+        "/f",
+    )
+    if rc != 0:
+        return jsonify({"error": err.strip() or "schtasks failed"}), 500
+    add_log("INFO", "Auto-start task installed (runs at logon).")
+    return jsonify({"ok": True})
+
+@app.route("/api/service/uninstall", methods=["POST"])
+def service_uninstall():
+    if sys.platform != "win32":
+        return jsonify({"error": "Only supported on Windows"}), 400
+    rc, out, err = _schtasks("/delete", "/tn", _TASK_NAME, "/f")
+    if rc != 0:
+        return jsonify({"error": err.strip() or "schtasks failed"}), 500
+    add_log("INFO", "Auto-start task removed.")
+    return jsonify({"ok": True})
 
 # --- Logs ---
 @app.route("/api/logs", methods=["GET"])

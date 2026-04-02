@@ -7,16 +7,22 @@ A local web dashboard for managing scheduled Python and batch workers via Redis 
 ## Features
 
 - **Active Workers Panel** — live table of all running workers and chains with next trigger time and remaining runs today. Pause/resume or delete individual items, or bulk pause/delete all at once.
-- **Flexible Scheduling** — Fixed Times (e.g. `09:00, 14:30, 17:00` — fires daily at each listed time) or Interval (e.g. `2h 30m` — repeats on a loop).
+- **Flexible Scheduling** — Fixed Times (e.g. `09:00, 14:30, 17:00` — fires daily at each listed time), Interval (e.g. `2h 30m` — repeats on a loop), or Cron expression (e.g. `0 9 * * 1-5` with a plain-English preview).
 - **Task Support** — Python files (`.py` with a `run()` function), batch files (`.bat`, `.cmd`), and shell scripts (`.sh`). Interactive scripts (menus, input prompts, GUI tools) can run in a **new terminal window** via a per-worker checkbox.
+- **Worker Timeout** — optional per-worker timeout (minutes). If a task runs over, it is killed and logged as an error.
+- **Per-worker Environment Variables** — inject `KEY=VALUE` pairs (one per line) into a worker's subprocess environment.
 - **Run Now** — fire any worker or chain immediately outside its schedule. Logged with a purple MANUAL tag in the debug panel.
-- **Task History** — last 10 runs per worker/chain stored in SQLite. A colored dot on each row (green = last run OK, red = failed, grey = no runs yet) opens the history modal with timestamps, duration, trigger type, and error details.
+- **Task History** — last 10 runs per worker/chain stored in SQLite. A colored dot on each row (green = last run OK, red = failed, grey = no runs yet) opens the history modal with timestamps, duration, trigger type, and error details. Filter by status and date range; paginate with Load More.
 - **Built-in Templates** — five template types that generate and manage stdlib-only Python scripts: Folder Backup, File Cleanup, Folder Watcher, Uptime Check, Open URL.
 - **Task Chains** — string multiple scripts into a sequential pipeline. Each step runs via subprocess with its own exit code. Stop-on-failure toggle. Chains appear in the Active Workers table alongside regular workers with a ⛓ badge.
+- **Parallel Chain Steps** — assign the same stage number to multiple steps in a chain to run them concurrently. Steps in different stages execute sequentially. Default stage = step index (fully sequential).
 - **Worker Groups** — collapsible named groups in the Active Workers panel. Assign workers and chains to groups from their Edit modal. Group-level Pause All and Delete All buttons. Click ▾ to collapse/expand.
 - **Native File Picker** — OS-native file/directory browser via tkinter. No need to type paths manually.
 - **Saved Profiles** — save and load named worker configurations. Switch between setups instantly.
-- **Debug Log** — live scrolling log panel with color-coded entries (INFO, OK, FIRE, MANUAL, ERROR, PAUSE, DELETE). Auto-scroll toggle and clear display.
+- **Import / Export** — export all workers, chains, chain steps, and groups to a portable JSON file. Import on any machine; groups are created if missing, name conflicts are skipped.
+- **System Tray Icon** — when `pystray` and `Pillow` are installed, a tray icon appears with Open Dashboard and Stop menu items. Right-click to stop cleanly without a terminal.
+- **Auto-start on Login (Windows)** — one-click install via Task Scheduler (⚙ Auto-start in the header). Redis Operator launches automatically at logon. No admin required.
+- **Debug Log** — live scrolling log panel with color-coded entries (INFO, OK, FIRE, MANUAL, ERROR, PAUSE, DELETE). Filter by level pill or keyword search. Auto-scroll toggle and clear display.
 - **Redis Auto-Start** — detects whether Redis is already running; starts it automatically if not.
 - **Persistent State** — all workers, chains, groups, and profiles stored in SQLite. Workers and chains automatically restore on restart via APScheduler's SQLAlchemy job store.
 
@@ -87,6 +93,25 @@ Chains run multiple scripts in sequence. Each step is executed as an isolated su
 
 To create a chain: click **⛓ New Chain** in the Active Workers panel header, add steps with the file picker, set a schedule, and click **Create Chain**.
 
+### Parallel Steps
+
+Each step has a **stage** number. Steps with the same stage number run concurrently; stages execute in order. By default each step gets its own stage (fully sequential). To run steps in parallel, assign them the same stage number in the chain builder.
+
+## System Tray
+
+If `pystray` and `Pillow` are installed (included in `requirements.txt`), a tray icon appears when Redis Operator launches. Right-click it for:
+
+- **Open Dashboard** — opens the browser
+- **Stop Redis Operator** — shuts down cleanly
+
+## Auto-start on Login (Windows)
+
+Click **⚙ Auto-start** in the top-right header to open the auto-start modal. Click **Install** to register a Windows Task Scheduler task that launches Redis Operator automatically every time you log in. Click **Remove** to uninstall it. No administrator privileges required.
+
+## Import / Export
+
+In the **Saved Profiles** panel, use **⬇ Export** to download a JSON snapshot of all workers, chains, and groups. Use **⬆ Import** to restore from a file — groups are created if missing, and any worker or chain whose name already exists is skipped. The JSON format is portable across machines.
+
 ## Built-in Templates
 
 | Template | What it does |
@@ -103,7 +128,7 @@ All templates use Python stdlib only — no extra packages required.
 
 ```
 redis_operator/
-├── launch.py                    # Entry point — starts Flask, opens browser
+├── launch.py                    # Entry point — starts Flask, opens browser, system tray
 ├── app.py                       # Flask backend + APScheduler + SQLite + Redis
 ├── static/
 │   └── index.html               # Entire frontend — HTML + CSS + JS (no frameworks)
@@ -173,6 +198,11 @@ The `.env` file is gitignored and your key is never transmitted anywhere except 
 | `GET` | `/api/profiles/<id>` | Load profile |
 | `DELETE` | `/api/profiles/<id>` | Delete profile |
 | `POST` | `/api/templates` | Create worker from template |
+| `GET` | `/api/export` | Export all data as JSON |
+| `POST` | `/api/import` | Import from JSON |
+| `GET` | `/api/service/status` | Check auto-start task status |
+| `POST` | `/api/service/install` | Install auto-start task |
+| `POST` | `/api/service/uninstall` | Remove auto-start task |
 | `GET` | `/api/logs?since=N` | Log entries since offset N |
 | `GET` | `/api/redis-status` | Redis connection status |
 | `GET` | `/api/browse?mode=file\|dir` | Native OS file picker |

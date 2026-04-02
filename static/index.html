@@ -1697,6 +1697,11 @@ function buildItemRow(w) {
     ? `<button class="btn btn-ghost btn-sm" onclick="editChain(${w.id})">Edit</button>`
     : `<button class="btn btn-ghost btn-sm" onclick="editWorker(${w.id})">Edit</button>`;
 
+  const groupOpts = `<option value="">⊞ Group</option>` +
+    currentGroups.map(g =>
+      `<option value="${g.id}" ${w.group_id === g.id ? 'selected' : ''}>${escHtml(g.name)}</option>`
+    ).join('');
+
   return `
     <tr>
       <td style="color:var(--text3);font-family:var(--mono);font-size:11px;">${w.id}</td>
@@ -1714,6 +1719,11 @@ function buildItemRow(w) {
           ${editBtn}
           <button class="btn btn-success btn-sm" onclick="runNow(${w.id}, '${entityType}')">▶ Run Now</button>
           <button class="btn ${pauseClass} btn-sm" onclick="togglePause(${w.id}, '${entityType}')">${pauseLabel}</button>
+          <select class="btn btn-ghost btn-sm" style="cursor:pointer;padding:4px 6px;"
+                  title="Assign to group"
+                  onchange="assignGroupFromRow(${w.id},'${entityType}',this)">
+            ${groupOpts}
+          </select>
           <button class="btn btn-danger btn-sm" onclick="deleteItem(${w.id}, '${escHtml(w.name)}', '${entityType}')">Delete</button>
         </div>
       </td>
@@ -2687,6 +2697,26 @@ async function createGroup() {
       toast('Error: ' + (d.error || 'Unknown'), 'error');
     }
   } catch(e) { toast('Failed: ' + e, 'error'); }
+}
+
+async function assignGroupFromRow(id, entityType, sel) {
+  const groupId = sel.value ? parseInt(sel.value) : null;
+  const endpoint = entityType === 'chain'
+    ? `/api/chains/${id}/assign-group`
+    : `/api/workers/${id}/assign-group`;
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({group_id: groupId}),
+    });
+    if (r.ok) {
+      toast(groupId ? 'Moved to group.' : 'Removed from group.', 'ok');
+      refreshWorkers();
+    } else {
+      toast('Failed to assign group.', 'error');
+    }
+  } catch(e) { toast('Error: ' + e, 'error'); }
 }
 
 async function deleteGroup(id, name) {

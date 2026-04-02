@@ -28,7 +28,6 @@ SolidCompression=yes
 WizardStyle=modern
 WizardSizePercent=100
 PrivilegesRequired=lowest
-CloseApplications=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 

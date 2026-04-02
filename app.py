@@ -32,7 +32,11 @@ import redis
 # ---------------------------------------------------------------------------
 # Paths & config
 # ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).parent.resolve()
+# sys.frozen is True when running as a PyInstaller bundle
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent.resolve()
+else:
+    BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "redis_operator.db"
 STATIC_DIR = BASE_DIR / "static"
 ENV_PATH = BASE_DIR / ".env"

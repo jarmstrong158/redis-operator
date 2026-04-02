@@ -10,6 +10,9 @@ env/
 *.egg-info/
 dist/
 build/
+Output/
+redis_operator.ico
+*.spec.bak
 .idea/
 .vscode/
 *.log

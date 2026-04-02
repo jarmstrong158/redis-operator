@@ -11,7 +11,10 @@ import threading
 import webbrowser
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent.resolve()
+else:
+    BASE_DIR = Path(__file__).parent.resolve()
 HOST = "127.0.0.1"
 PORT = 5000
 URL = f"http://{HOST}:{PORT}"

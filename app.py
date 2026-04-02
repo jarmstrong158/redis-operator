@@ -42,6 +42,9 @@ STATIC_DIR = BASE_DIR / "static"
 ENV_PATH = BASE_DIR / ".env"
 TEMPLATES_DIR = BASE_DIR / "templates" / "generated"
 
+VERSION = "3.0"
+GITHUB_REPO = "jarmstrong158/redis-operator"
+
 # ---------------------------------------------------------------------------
 # Dependency management
 # ---------------------------------------------------------------------------
@@ -1697,6 +1700,37 @@ def service_uninstall():
     add_log("INFO", "Auto-start task removed.")
     return jsonify({"ok": True})
 
+# --- Update check ---
+_update_info: dict = {"available": False, "latest": None, "url": None}
+
+def _version_tuple(v: str):
+    try:
+        return tuple(int(x) for x in v.lstrip("v").split("."))
+    except Exception:
+        return (0,)
+
+def _check_for_update():
+    global _update_info
+    try:
+        import urllib.request as _ur
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = _ur.Request(url, headers={"User-Agent": f"redis-operator/{VERSION}"})
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        tag   = data.get("tag_name", "").lstrip("v")
+        html  = data.get("html_url", "")
+        if tag and _version_tuple(tag) > _version_tuple(VERSION):
+            _update_info = {"available": True, "latest": tag, "url": html}
+            add_log("INFO", f"Update available: v{tag} — {html}")
+        else:
+            _update_info = {"available": False, "latest": tag, "url": html}
+    except Exception:
+        pass  # silently ignore network errors
+
+@app.route("/api/update-check", methods=["GET"])
+def update_check():
+    return jsonify({**_update_info, "current": VERSION})
+
 # --- Logs ---
 @app.route("/api/logs", methods=["GET"])
 def get_logs():
@@ -1758,6 +1792,7 @@ def create_app():
     restore_chains()
     atexit.register(lambda: scheduler.shutdown(wait=False))
     atexit.register(stop_redis)
+    threading.Thread(target=_check_for_update, daemon=True).start()
     return app
 
 application = create_app()

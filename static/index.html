@@ -623,6 +623,33 @@
 
   #redis-error-banner.show { display: block; }
 
+  /* ---- Update banner ---- */
+  #update-banner {
+    display: none;
+    background: rgba(0,200,255,0.07);
+    border: 1px solid rgba(0,200,255,0.25);
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+  }
+  #update-banner.show { display: flex; }
+  #update-banner a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  #update-banner a:hover { text-decoration: underline; }
+  #update-banner .dismiss {
+    margin-left: auto;
+    cursor: pointer;
+    color: var(--text3);
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  #update-banner .dismiss:hover { color: var(--text2); background: var(--bg3); }
+
   /* ---- Responsive ---- */
   @media (max-width: 640px) {
     .form-row, .form-row.three { grid-template-columns: 1fr; }
@@ -875,6 +902,13 @@
       </div>
     </div>
   </header>
+
+  <!-- Update available banner -->
+  <div id="update-banner">
+    <span>🎉 Redis Operator <strong id="update-version"></strong> is available!</span>
+    <a id="update-link" href="#" target="_blank" rel="noopener">Download →</a>
+    <span class="dismiss" onclick="document.getElementById('update-banner').classList.remove('show')" title="Dismiss">✕</span>
+  </div>
 
   <!-- Redis error banner -->
   <div id="redis-error-banner"></div>
@@ -1337,6 +1371,20 @@ function openModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 
 // ═══════════════════════════════════════════════════════════════
+// Update check
+// ═══════════════════════════════════════════════════════════════
+async function checkForUpdate() {
+  try {
+    const r = await fetch('/api/update-check');
+    const d = await r.json();
+    if (d.available && d.latest && d.url) {
+      document.getElementById('update-version').textContent = 'v' + d.latest;
+      document.getElementById('update-link').href = d.url;
+      document.getElementById('update-banner').classList.add('show');
+    }
+  } catch(e) {}
+}
+
 // Redis status
 // ═══════════════════════════════════════════════════════════════
 async function checkRedisStatus() {
@@ -3042,6 +3090,7 @@ function init() {
   refreshGroups().then(() => refreshWorkers());
   refreshProfiles();
   checkRedisStatus();
+  checkForUpdate();
   pollLogs();
 
   setInterval(refreshWorkers, 4000);

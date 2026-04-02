@@ -25,7 +25,7 @@ if errorlevel 1 (
 )
 
 :: Install / upgrade PyInstaller
-echo [1/4] Checking PyInstaller...
+echo [1/5] Checking PyInstaller...
 %PIP% show pyinstaller >nul 2>&1
 if errorlevel 1 (
     echo       Installing PyInstaller...
@@ -62,21 +62,21 @@ if errorlevel 1 ( echo ERROR: PyInstaller build failed. & pause & exit /b 1 )
 echo       Executable built: dist\Redis Operator\Redis Operator.exe
 :inno
 
-:: Find Inno Setup — PATH first, then brute-force every drive letter
+:: Find Inno Setup — try PATH first, then registry (works on any drive)
 echo.
 echo [5/5] Building installer...
-set ISCC=
-for /f "delims=" %%i in ('where ISCC.exe 2^>nul') do if not defined ISCC set ISCC=%%i
+set "ISCC="
+
+for /f "usebackq delims=" %%i in (`where ISCC.exe 2^>nul`) do (
+    if not defined ISCC set "ISCC=%%i"
+)
 
 if not defined ISCC (
-    for %%d in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
-        if not defined ISCC if exist "%%d:\Program Files (x86)\Inno Setup 6\ISCC.exe" set ISCC=%%d:\Program Files (x86)\Inno Setup 6\ISCC.exe
-        if not defined ISCC if exist "%%d:\Program Files\Inno Setup 6\ISCC.exe"       set ISCC=%%d:\Program Files\Inno Setup 6\ISCC.exe
-        if not defined ISCC if exist "%%d:\Program Files (x86)\Inno Setup 5\ISCC.exe" set ISCC=%%d:\Program Files (x86)\Inno Setup 5\ISCC.exe
-        if not defined ISCC if exist "%%d:\Program Files\Inno Setup 5\ISCC.exe"       set ISCC=%%d:\Program Files\Inno Setup 5\ISCC.exe
-        if not defined ISCC if exist "%%d:\Inno Setup 6\ISCC.exe"                     set ISCC=%%d:\Inno Setup 6\ISCC.exe
-        if not defined ISCC if exist "%%d:\Inno Setup 5\ISCC.exe"                     set ISCC=%%d:\Inno Setup 5\ISCC.exe
-    )
+    set "ISCC_DIR="
+    for /f "tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v "InstallLocation" 2^>nul') do set "ISCC_DIR=%%b"
+    if not defined ISCC_DIR for /f "tokens=2*" %%a in ('reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v "InstallLocation" 2^>nul') do set "ISCC_DIR=%%b"
+    if not defined ISCC_DIR for /f "tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 5_is1" /v "InstallLocation" 2^>nul') do set "ISCC_DIR=%%b"
+    if defined ISCC_DIR if exist "!ISCC_DIR!ISCC.exe" set "ISCC=!ISCC_DIR!ISCC.exe"
 )
 
 if not defined ISCC (
@@ -95,7 +95,7 @@ if not defined ISCC (
     exit /b 0
 )
 
-%ISCC% installer.iss
+"%ISCC%" installer.iss
 if errorlevel 1 ( echo ERROR: Inno Setup build failed. & pause & exit /b 1 )
 
 echo.

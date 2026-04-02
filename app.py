@@ -32,15 +32,20 @@ import redis
 # ---------------------------------------------------------------------------
 # Paths & config
 # ---------------------------------------------------------------------------
-# sys.frozen is True when running as a PyInstaller bundle
+# sys.frozen is True when running as a PyInstaller bundle.
+# PyInstaller 6+ puts bundled assets in _internal/ (sys._MEIPASS).
+# User data (DB, .env, generated templates) lives next to the exe.
 if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).parent.resolve()
+    BASE_DIR    = Path(sys.executable).parent.resolve()          # writable: db, .env, templates
+    BUNDLE_DIR  = Path(getattr(sys, "_MEIPASS", BASE_DIR))       # read-only: static, tasks, redis
 else:
-    BASE_DIR = Path(__file__).parent.resolve()
-DB_PATH = BASE_DIR / "redis_operator.db"
-STATIC_DIR = BASE_DIR / "static"
-ENV_PATH = BASE_DIR / ".env"
-TEMPLATES_DIR = BASE_DIR / "templates" / "generated"
+    BASE_DIR    = Path(__file__).parent.resolve()
+    BUNDLE_DIR  = BASE_DIR
+
+DB_PATH       = BASE_DIR   / "redis_operator.db"
+STATIC_DIR    = BUNDLE_DIR / "static"
+ENV_PATH      = BASE_DIR   / ".env"
+TEMPLATES_DIR = BASE_DIR   / "templates" / "generated"
 
 VERSION = "3.0"
 GITHUB_REPO = "jarmstrong158/redis-operator"
@@ -299,7 +304,7 @@ def start_redis() -> dict:
 
     # Determine binary — prefer bundled copy, fall back to PATH
     binary_name = "redis-server.exe" if sys.platform == "win32" else "redis-server"
-    bundled = BASE_DIR / "redis_bundled" / binary_name
+    bundled = BUNDLE_DIR / "redis_bundled" / binary_name
     if bundled.exists():
         binary = str(bundled)
         add_log("INFO", "Using bundled redis-server.")

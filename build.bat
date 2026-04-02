@@ -54,17 +54,25 @@ echo [4/5] Building executable (this takes a minute)...
 if errorlevel 1 ( echo ERROR: PyInstaller build failed. & pause & exit /b 1 )
 echo       Executable built: dist\Redis Operator\Redis Operator.exe
 
-:: Find Inno Setup
+:: Find Inno Setup — check PATH first, then common locations on all drives
 echo.
 echo [5/5] Building installer...
 set ISCC=
-for %%p in (
-    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-    "C:\Program Files\Inno Setup 6\ISCC.exe"
-    "C:\Program Files (x86)\Inno Setup 5\ISCC.exe"
-    "C:\Program Files\Inno Setup 5\ISCC.exe"
-) do (
-    if exist %%p set ISCC=%%p
+where ISCC.exe >nul 2>&1
+if not errorlevel 1 ( set ISCC=ISCC.exe )
+
+if not defined ISCC (
+    for %%d in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+        for %%v in (6 5) do (
+            for %%f in (
+                "%%d:\Program Files (x86)\Inno Setup %%v\ISCC.exe"
+                "%%d:\Program Files\Inno Setup %%v\ISCC.exe"
+                "%%d:\Inno Setup %%v\ISCC.exe"
+            ) do (
+                if exist %%f if not defined ISCC set ISCC=%%f
+            )
+        )
+    )
 )
 
 if not defined ISCC (

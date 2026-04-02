@@ -61,7 +61,7 @@ Filename: "{app}\{#AppExeName}"; \
 [UninstallRun]
 ; Remove the auto-start entry if it exists
 Filename: "reg"; Parameters: "delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v ""{#AppName}"" /f"; \
-  Flags: runhidden; StatusMsg: "Removing auto-start entry..."
+  Flags: runhidden; RunOnceId: "RemoveAutoStart"; StatusMsg: "Removing auto-start entry..."
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

@@ -1,5 +1,5 @@
 """
-test_api.py — end-to-end API tests for Redis Operator.
+test_api.py — end-to-end API tests for Conductor.
 
 Coverage areas (in priority order):
   1. Worker CRUD

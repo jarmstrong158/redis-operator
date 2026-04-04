@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for Redis Operator
-# Build with: pyinstaller redis_operator.spec --clean --noconfirm
+# PyInstaller spec for Conductor
+# Build with: pyinstaller conductor.spec --clean --noconfirm
 
 block_cipher = None
 
@@ -97,7 +97,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Redis Operator',
+    name='Conductor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -108,7 +108,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='redis_operator.ico',
+    icon='conductor.ico',
 )
 
 coll = COLLECT(
@@ -119,5 +119,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Redis Operator',
+    name='Conductor',
 )

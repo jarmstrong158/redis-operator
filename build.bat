@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ============================================
-echo   Redis Operator ^— Build Windows Installer
+echo   Conductor ^— Build Windows Installer
 echo ============================================
 echo.
 
@@ -49,7 +49,7 @@ if errorlevel 1 ( echo ERROR: Icon generation failed. & pause & exit /b 1 )
 
 :: PyInstaller build — skip if exe already exists (pass --rebuild to force)
 echo.
-if exist "dist\Redis Operator\Redis Operator.exe" (
+if exist "dist\Conductor\Conductor.exe" (
     echo %* | find /i "--rebuild" >nul
     if errorlevel 1 (
         echo [4/5] Executable already built — skipping. Pass --rebuild to force.
@@ -57,9 +57,9 @@ if exist "dist\Redis Operator\Redis Operator.exe" (
     )
 )
 echo [4/5] Building executable (this takes a minute)...
-%PYINSTALLER% redis_operator.spec --clean --noconfirm
+%PYINSTALLER% conductor.spec --clean --noconfirm
 if errorlevel 1 ( echo ERROR: PyInstaller build failed. & pause & exit /b 1 )
-echo       Executable built: dist\Redis Operator\Redis Operator.exe
+echo       Executable built: dist\Conductor\Conductor.exe
 :inno
 
 :: Run Inno Setup via Python (avoids batch syntax issues with spaces in paths)
@@ -72,7 +72,7 @@ if errorlevel 1 ( echo ERROR: Inno Setup build failed. & pause & exit /b 1 )
 echo.
 echo ============================================
 echo   Done!
-echo   Installer: Output\Redis_Operator_Setup.exe
+echo   Installer: Output\Conductor_Setup.exe
 echo ============================================
 echo.
 pause

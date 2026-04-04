@@ -1,5 +1,5 @@
 """
-conftest.py — pytest fixtures for Redis Operator tests.
+conftest.py — pytest fixtures for Conductor tests.
 
 Heavy external dependencies (redis, pystray, PIL, tzlocal) are stubbed via
 sys.modules BEFORE app.py is imported, because app.py runs create_app() at
@@ -54,7 +54,7 @@ def client(tmp_path):
     The APScheduler is replaced with a MagicMock so tests never actually
     schedule or fire jobs.
     """
-    db_path       = tmp_path / "test_redis_operator.db"
+    db_path       = tmp_path / "test_conductor.db"
     templates_dir = tmp_path / "templates" / "generated"
     templates_dir.mkdir(parents=True, exist_ok=True)
 

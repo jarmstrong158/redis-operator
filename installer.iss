@@ -1,11 +1,11 @@
-; Redis Operator — Inno Setup installer script
+; Conductor — Inno Setup installer script
 ; Build with: ISCC.exe installer.iss  (or run build.bat)
 
-#define AppName      "Redis Operator"
+#define AppName      "Conductor"
 #define AppVersion   "3.0"
-#define AppPublisher "Redis Operator"
-#define AppURL       "https://github.com/jarmstrong158/redis-operator"
-#define AppExeName   "Redis Operator.exe"
+#define AppPublisher "Conductor"
+#define AppURL       "https://github.com/jarmstrong158/conductor"
+#define AppExeName   "Conductor.exe"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -21,8 +21,8 @@ DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName}
 OutputDir=Output
-OutputBaseFilename=Redis_Operator_Setup
-SetupIconFile=redis_operator.ico
+OutputBaseFilename=Conductor_Setup
+SetupIconFile=conductor.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -36,10 +36,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon";  Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "startupentry"; Description: "Start Redis Operator automatically when I log in";  GroupDescription: "Startup:"; Flags: unchecked
+Name: "startupentry"; Description: "Start Conductor automatically when I log in";  GroupDescription: "Startup:"; Flags: unchecked
 
 [Files]
-Source: "dist\Redis Operator\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\Conductor\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#AppName}";                        Filename: "{app}\{#AppExeName}"

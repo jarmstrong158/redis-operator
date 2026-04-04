@@ -1,5 +1,5 @@
 """
-example_task.py — sample scheduled task for Redis Operator
+example_task.py — sample scheduled task for Conductor
 """
 import datetime
 import os

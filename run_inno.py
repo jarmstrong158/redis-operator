@@ -51,7 +51,7 @@ def main():
         print("=" * 44)
         print()
         print("  The executable is already built at:")
-        print(r"  dist\Redis Operator\Redis Operator.exe")
+        print(r"  dist\Conductor\Conductor.exe")
         print("  You can run it directly without installing.")
         sys.exit(2)
 

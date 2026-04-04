@@ -1,5 +1,5 @@
 """
-build_icon.py — generates redis_operator.ico for the Windows installer.
+build_icon.py — generates conductor.ico for the Windows installer.
 Run once before building: python build_icon.py
 """
 from PIL import Image, ImageDraw, ImageFont
@@ -45,7 +45,7 @@ def make_frame(size: int) -> Image.Image:
 sizes = [16, 32, 48, 64, 128, 256]
 frames = [make_frame(s) for s in sizes]
 
-out = "redis_operator.ico"
+out = "conductor.ico"
 frames[0].save(
     out,
     format="ICO",

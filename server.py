@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Redis Operator MCP Server
-Exposes Redis Operator's REST API as MCP tools for Claude.
-Run alongside Redis Operator: python server.py
+Conductor MCP Server
+Exposes Conductor's REST API as MCP tools for Claude.
+Run alongside Conductor: python server.py
 """
 
 import json
@@ -31,7 +31,7 @@ def api(method: str, path: str, body: dict = None) -> Any:
 TOOLS = [
     {
         "name": "list_workers",
-        "description": "List all workers and chains in Redis Operator. Returns id, name, task_path, schedule, paused state, next trigger time, remaining runs today, last run status, and group assignment for each.",
+        "description": "List all workers and chains in Conductor. Returns id, name, task_path, schedule, paused state, next trigger time, remaining runs today, last run status, and group assignment for each.",
         "inputSchema": {"type": "object", "properties": {}}
     },
     {
@@ -242,7 +242,7 @@ TOOLS = [
     },
     {
         "name": "check_for_update",
-        "description": "Check GitHub for a newer version of Redis Operator.",
+        "description": "Check GitHub for a newer version of Conductor.",
         "inputSchema": {"type": "object", "properties": {}}
     }
 ]
@@ -317,7 +317,7 @@ def main():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "redis-operator-mcp", "version": "1.0.0"}
+                    "serverInfo": {"name": "conductor-mcp", "version": "1.0.0"}
                 }
             }
         elif method == "tools/list":

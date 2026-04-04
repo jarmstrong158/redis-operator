@@ -1,10 +1,10 @@
-# Redis Operator — Claude Context
+# Conductor — Claude Context
 
-Redis Operator is a local web dashboard for managing scheduled Python and batch workers via Redis + APScheduler. It runs at http://127.0.0.1:5000 and exposes a REST API that this MCP server wraps.
+Conductor is a local web dashboard for managing scheduled Python and batch workers via Redis + APScheduler. It runs at http://127.0.0.1:5000 and exposes a REST API that this MCP server wraps.
 
 ## What it does
 
-Users register scripts (.py, .bat, .sh, .cmd) and give them a schedule. Redis Operator fires them on time, logs the results, and shows everything in a browser dashboard. No terminal needed after launch.
+Users register scripts (.py, .bat, .sh, .cmd) and give them a schedule. Conductor fires them on time, logs the results, and shows everything in a browser dashboard. No terminal needed after launch.
 
 Scripts can be chained together into sequential or parallel pipelines. Workers can be grouped for organization. Everything persists in SQLite.
 
@@ -97,9 +97,9 @@ Always set `new_console: true` for scripts that open a browser, GUI, or need use
 When `new_console: true`, stdout/stderr are NOT captured — error_msg will just say "exit code 1" with no details. To debug: temporarily set `new_console: false`, run the worker, check the error in history, fix it, then set `new_console` back to `true`.
 
 ### Email automation — built-in
-Redis Operator has built-in email support. No wrapper scripts needed:
+Conductor has built-in email support. No wrapper scripts needed:
 
-**For "run script then email the output"** — use the **Run + Email** template. Configure script path, output file, and recipient. Redis Operator generates and manages the script.
+**For "run script then email the output"** — use the **Run + Email** template. Configure script path, output file, and recipient. Conductor generates and manages the script.
 
 **For "email me when a worker fails"** — set `notify_email` and `notify_on: "failure"` on the worker. No template needed.
 
@@ -110,12 +110,12 @@ Redis Operator has built-in email support. No wrapper scripts needed:
 All email features require global email settings configured first (📧 button in header). Gmail App Passwords require 2-Step Verification. Generate at https://myaccount.google.com/apppasswords.
 
 ### Common dependency issues
-If a script fails with `ModuleNotFoundError`, Redis Operator auto-retries once after pip-installing the missing module. But for `new_console: true` workers, the auto-install won't trigger (no stderr captured). Pre-install dependencies or use the `requirements` field on the worker.
+If a script fails with `ModuleNotFoundError`, Conductor auto-retries once after pip-installing the missing module. But for `new_console: true` workers, the auto-install won't trigger (no stderr captured). Pre-install dependencies or use the `requirements` field on the worker.
 
-## When helping a user set up Redis Operator
+## When helping a user set up Conductor
 
 Walk through in this order:
-1. Confirm Redis Operator is running (check redis status, then list workers)
+1. Confirm Conductor is running (check redis status, then list workers)
 2. Ask what they want to automate — script path, what it does, when it should run
 3. If the script uses Selenium/browser/GUI, set `new_console: true`. Pre-install dependencies with the `requirements` field since auto-install won't work with `new_console`.
 4. Choose the right schedule type based on their description

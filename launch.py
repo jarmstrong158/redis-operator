@@ -1,7 +1,7 @@
 """
-launch.py — Redis Operator launcher
+launch.py — Conductor launcher
 Starts the Flask backend and opens the dashboard in the default browser.
-Run this file to start Redis Operator: python launch.py
+Run this file to start Conductor: python launch.py
 """
 
 import os
@@ -81,14 +81,14 @@ def _run_tray(stop_event):
     menu = pystray.Menu(
         pystray.MenuItem("Open Dashboard", open_dashboard, default=True),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Stop Redis Operator", stop_app),
+        pystray.MenuItem("Stop Conductor", stop_app),
     )
-    icon = pystray.Icon("Redis Operator", img, "Redis Operator", menu)
+    icon = pystray.Icon("Conductor", img, "Conductor", menu)
     icon.run()
 
 
 def _register_mcp():
-    """Register Redis Operator as an MCP server in Claude Desktop config."""
+    """Register Conductor as an MCP server in Claude Desktop config."""
     import json as _json
 
     # Locate server.py — bundled next to exe, or next to this script
@@ -132,10 +132,10 @@ def _register_mcp():
         return
 
     servers = config.setdefault("mcpServers", {})
-    if "redis-operator" in servers:
+    if "conductor" in servers:
         return  # already registered
 
-    servers["redis-operator"] = {
+    servers["conductor"] = {
         "command": "python",
         "args": [str(server_py.resolve())]
     }
@@ -156,7 +156,7 @@ def _register_mcp():
 
 def main():
     print("=" * 50)
-    print("  Redis Operator")
+    print("  Conductor")
     print("=" * 50)
     print(f"  Starting server at {URL} ...")
 
@@ -173,7 +173,7 @@ def main():
         print(f"  WARNING: Server did not respond within timeout.")
         print(f"  Try opening {URL} manually.")
 
-    print(f"  Press Ctrl+C to stop Redis Operator.\n")
+    print(f"  Press Ctrl+C to stop Conductor.\n")
     print(f"  A system tray icon will appear if pystray + Pillow are installed.")
 
     # Start tray icon in background thread
@@ -186,7 +186,7 @@ def main():
         while flask_thread.is_alive() and not stop_event.is_set():
             flask_thread.join(timeout=1)
     except KeyboardInterrupt:
-        print("\n  Shutting down Redis Operator...")
+        print("\n  Shutting down Conductor...")
     finally:
         sys.exit(0)
 

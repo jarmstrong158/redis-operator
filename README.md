@@ -1,32 +1,60 @@
-# Redis Operator
+# Conductor
 
-A local web dashboard for managing scheduled Python and batch workers via Redis + APScheduler. Register tasks, set schedules, and monitor everything from the browser — no terminal needed after launch.
+**Tell Claude what to automate. It handles the rest.**
 
-![Redis Operator Dashboard](Readmejpegs/Screenshot%202026-04-01%20210159.png)
+Conductor is a local task orchestration platform that Claude controls directly. Install it, restart Claude Desktop, and Claude can create scheduled workers, build multi-step pipelines, send email reports, and monitor everything — all through conversation. No coding required.
+
+![Conductor Dashboard](Readmejpegs/Screenshot%202026-04-01%20210159.png)
+
+## Claude Integration
+
+Conductor registers itself as an MCP server in Claude Desktop on first launch. After restarting Claude Desktop once, Claude has 21 tools for full control:
+
+**Example conversation:**
+
+> **You:** Run my metrics script every night at 8:30 PM and email me the report at jarmstrong158@gmail.com
+>
+> **Claude:** I'll set that up using the Run + Email template.
+> *(creates the worker, configures the schedule, wires up Gmail, fires it to test)*
+> Done — worker "Daily Metrics Report" is live. Check your email for the test run.
+
+> **You:** That uptime check keeps failing. What's going on?
+>
+> **Claude:** *(pulls the last 10 runs, reads the error logs)*
+> The site returned a 503 three times in the last hour. The SSL certificate expired yesterday. Here's the full error from the last run...
+
+> **You:** Chain my backup script and cleanup script together. Run backup first, then cleanup after it finishes. Every day at 2 AM.
+>
+> **Claude:** *(creates a chain with stage 0 = backup, stage 1 = cleanup, cron schedule "0 2 * * *")*
+> Chain "Nightly Maintenance" created with 2 steps. Backup runs first, cleanup runs after it succeeds.
+
+**How it works:**
+1. Install Conductor (Windows installer or from source)
+2. Conductor writes its MCP entry to Claude Desktop's config on first launch
+3. Restart Claude Desktop once
+4. Claude now controls Conductor through natural language — create workers, build chains, fire tasks, check logs, send emails
 
 ## Features
 
-- **Active Workers Panel** — live table of all running workers and chains with next trigger time and remaining runs today. Pause/resume or delete individual items, or bulk pause/delete all at once.
-- **Flexible Scheduling** — Fixed Times (e.g. `09:00, 14:30, 17:00` — fires daily at each listed time), Interval (e.g. `2h 30m` — repeats on a loop), or Cron expression (e.g. `0 9 * * 1-5` with a plain-English preview).
-- **Task Support** — Python files (`.py`), batch files (`.bat`, `.cmd`), and shell scripts (`.sh`). All scripts run as subprocesses. Interactive scripts (Selenium, GUI tools, input prompts) can run in a **new terminal window** via a per-worker checkbox.
-- **Worker Timeout** — optional per-worker timeout (minutes). If a task runs over, it is killed and logged as an error.
-- **Per-worker Environment Variables** — inject `KEY=VALUE` pairs (one per line) into a worker's subprocess environment.
-- **Run Now** — fire any worker or chain immediately outside its schedule. Logged with a purple MANUAL tag in the debug panel.
-- **Task History** — last 10 runs per worker/chain stored in SQLite. A colored dot on each row (green = last run OK, red = failed, grey = no runs yet) opens the history modal with timestamps, duration, trigger type, and error details. Filter by status and date range; paginate with Load More.
-- **Built-in Templates** — five template types that generate and manage stdlib-only Python scripts: Folder Backup, File Cleanup, Folder Watcher, Uptime Check, Open URL. Accessible via the **⚙ From Template** button in the Add Workers panel.
-- **Task Chains** — string multiple scripts into a sequential pipeline. Each step runs via subprocess with its own exit code. Stop-on-failure toggle. Chains appear in the Active Workers table alongside regular workers with a ⛓ badge.
-- **Parallel Chain Steps** — assign the same stage number to multiple steps in a chain to run them concurrently. Steps in different stages execute sequentially. Default stage = step index (fully sequential).
-- **Worker Groups** — collapsible named groups in the Active Workers panel. Assign workers and chains to groups from their Edit modal. Group-level Pause All and Delete All buttons. Click ▾ to collapse/expand.
-- **Native File Picker** — OS-native file/directory browser via tkinter. No need to type paths manually.
-- **Saved Profiles** — save and load named worker configurations. Switch between setups instantly.
-- **Import / Export** — export all workers, chains, chain steps, and groups to a portable JSON file. Import on any machine; groups are created if missing, name conflicts are skipped.
-- **System Tray Icon** — a tray icon appears with Open Dashboard and Stop menu items. Right-click to stop cleanly without a terminal.
-- **Auto-start on Login (Windows)** — one-click install via the Registry Run key (⚙ Auto-start in the header). Redis Operator launches automatically at logon. No admin required.
-- **Auto-update Check** — on startup, silently checks GitHub for a newer release. If one is found, a modal dialog appears showing your current version vs the new version. Must be acknowledged before continuing.
-- **Claude Desktop MCP Integration** — on startup, Redis Operator automatically registers itself as an MCP server in Claude Desktop's config. After restarting Claude Desktop, Claude can control workers, chains, groups, and logs through natural language. See the [MCP companion repo](https://github.com/jarmstrong158/redis-operator-mcp) for details.
-- **Debug Log** — live scrolling log panel with color-coded entries (INFO, OK, FIRE, MANUAL, ERROR, PAUSE, DELETE). Filter by level pill or keyword search. Auto-scroll toggle and clear display.
-- **Redis Auto-Start** — detects whether Redis is already running; starts it automatically if not. The Windows installer bundles Redis — no separate install needed.
-- **Persistent State** — all workers, chains, groups, and profiles stored in SQLite. Workers and chains automatically restore on restart.
+- **Claude-Controlled** — 21 MCP tools let Claude create workers, chains, groups, templates, and more. Non-technical users can automate anything through conversation.
+- **Flexible Scheduling** — Fixed times (`09:00, 14:30`), intervals (`2h 30m`), or cron expressions (`0 9 * * 1-5` with plain-English preview).
+- **Task Support** — Python (`.py`), batch (`.bat`, `.cmd`), and shell (`.sh`) scripts. Selenium and GUI scripts run in a visible terminal window via `new_console`.
+- **Built-in Email** — configure Gmail once, then any template or worker can send emails. Run + Email template for automated reports. Folder Watcher emails files on arrival. Uptime Check sends DOWN alerts. Worker notifications on success/failure.
+- **Task Chains** — multi-step pipelines with parallel execution. Same stage number = run in parallel. Stop-on-failure toggle.
+- **Worker Groups** — collapsible named groups for organization. Bulk pause/delete per group.
+- **Run History** — per-worker/chain history with status, duration, and error details. Colored dots show last run status at a glance.
+- **Built-in Templates** — Folder Backup, File Cleanup, Folder Watcher, Uptime Check, Open URL, Run + Email. Generated scripts are stdlib-only and self-contained.
+- **Per-worker Environment Variables** — inject `KEY=VALUE` pairs into subprocess environments.
+- **Worker Timeout** — kill and log workers that run over a set number of minutes.
+- **Email Notifications** — per-worker/chain email alerts: Always, On Failure, or On Success.
+- **Import / Export** — portable JSON snapshot of all workers, chains, and groups.
+- **Saved Profiles** — save and load named worker configurations.
+- **Auto-start on Login** — one-click Registry Run key install. No admin required.
+- **Auto-update Check** — modal dialog when a newer release is available.
+- **System Tray Icon** — right-click for Open Dashboard or Stop.
+- **AI Error Analysis** — send error logs to Claude for diagnosis directly in the dashboard.
+- **Redis Auto-Start** — bundled Redis, starts automatically. No separate install needed.
+- **Persistent State** — SQLite database. Workers and chains restore on restart.
 
 ### Add Workers Form
 
@@ -44,70 +72,51 @@ A local web dashboard for managing scheduled Python and batch workers via Redis 
 
 ![Debug log panel](Readmejpegs/Screenshot%202026-04-01%20210327.png)
 
-### Windows Installer
+## Installation (Windows)
 
-![Windows installer — Select Additional Tasks step](Readmejpegs/Screenshot%202026-04-01%20210345.png)
-
-## Installation (Windows — recommended)
-
-Download and run **`Redis_Operator_Setup.exe`** from the [latest release](https://github.com/jarmstrong158/redis-operator/releases/latest).
+Download and run **`Conductor_Setup.exe`** from the [latest release](https://github.com/jarmstrong158/conductor/releases/latest).
 
 - No Python required — everything is bundled
 - Redis is bundled — no separate install needed
-- Installs to `%AppData%\Redis Operator` — no admin/UAC required
-- Adds a Start Menu shortcut and optional desktop shortcut
-- Optional auto-start at login (checkbox during install, or via ⚙ Auto-start in the dashboard)
-- Uninstaller included in Add/Remove Programs
+- Installs to `%AppData%\Conductor` — no admin/UAC required
+- Adds Start Menu shortcut and optional desktop shortcut
+- Optional auto-start at login
+- Uninstaller included
 
 ## Setup from Source
 
 ### Requirements
 
 - Python 3.10+
-- Redis server (Windows: `winget install Redis.Redis` or https://github.com/tporadowski/redis/releases — macOS: `brew install redis` — Ubuntu: `sudo apt install redis-server`)
-
-### Windows (dev)
-
-1. Install [Python 3.10+](https://www.python.org/downloads/) — check **"Add Python to PATH"**
-2. Install Redis (see above)
-3. Clone this repo
-4. Double-click **`start.bat`**
-
-`start.bat` creates a virtual environment and installs all dependencies on first run. Subsequent launches skip straight to the dashboard.
-
-### Manual
+- Redis server (Windows: `winget install Redis.Redis` — macOS: `brew install redis` — Ubuntu: `sudo apt install redis-server`)
 
 ```bash
-git clone https://github.com/jarmstrong158/redis-operator.git
-cd redis-operator
+git clone https://github.com/jarmstrong158/conductor.git
+cd conductor
 pip install -r requirements.txt
 python launch.py
 ```
 
-The dashboard opens automatically at [http://127.0.0.1:5000](http://127.0.0.1:5000). Press `Ctrl+C` to stop.
+The dashboard opens at [http://127.0.0.1:5000](http://127.0.0.1:5000). Press `Ctrl+C` to stop.
 
 ## Building the Installer
 
-To build `Redis_Operator_Setup.exe` yourself:
+```
+.\build.bat
+```
 
-1. Install [Inno Setup](https://jrsoftware.org/isdl.php) (free)
-2. Run:
-   ```
-   .\build.bat
-   ```
-
-`build.bat` handles everything: downloads the bundled Redis binary, generates the icon, runs PyInstaller, and compiles the installer. Output is at `Output\Redis_Operator_Setup.exe`.
-
-To force a full PyInstaller rebuild (e.g. after changing Python code):
+Forces a full rebuild:
 ```
 .\build.bat --rebuild
 ```
+
+Output: `Output\Conductor_Setup.exe`. Requires [Inno Setup](https://jrsoftware.org/isdl.php).
 
 ## Task File Format
 
 ### Python (`.py`)
 
-Scripts are executed as subprocesses. Use a standard `if __name__` guard:
+Scripts run as subprocesses:
 
 ```python
 if __name__ == "__main__":
@@ -116,120 +125,94 @@ if __name__ == "__main__":
 
 ### Batch / Shell (`.bat`, `.sh`, `.cmd`)
 
-Executed as a subprocess. The worker's output directory (if set) is used as the working directory.
+Executed as subprocesses. The worker's output directory (if set) is used as the working directory.
+
+## Schedule Formats
+
+| Type | Format | Example |
+|------|--------|---------|
+| Fixed | `HH:MM` or `HH:MM,HH:MM` | `09:00, 14:30, 17:00` |
+| Interval | `Xh Ym` | `2h 30m`, `1h`, `45m` |
+| Cron | 5-field crontab | `0 9 * * 1-5` (weekdays at 9am) |
 
 ## Task Chains
 
-Chains run multiple scripts in sequence. Each step is an isolated subprocess with full stdout/stderr capture. If **Stop on failure** is checked, the chain halts as soon as any step returns a non-zero exit code. Chains appear in the Active Workers table with a ⛓ badge showing the step count.
+Chains run multiple scripts in sequence. Each step has a **stage** number — steps with the same stage run in parallel, stages execute in order. **Stop on failure** halts the chain when any step fails.
 
-To create a chain: click **⛓ New Chain** in the Active Workers panel header, add steps with the file picker, set a schedule, and click **Create Chain**.
+```
+Stage 0: backup.py  ──┐
+Stage 0: cleanup.py ──┤  (both run at once)
+                      ↓
+Stage 1: report.py    (runs after both finish)
+```
 
-### Parallel Steps
+## Templates
 
-Each step has a **stage** number. Steps with the same stage number run concurrently; stages execute in order. By default each step gets its own stage (fully sequential). To run steps in parallel, assign them the same stage number in the chain builder.
+| Template | What it does | Email capability |
+|----------|-------------|-----------------|
+| Folder Backup | Copy folder, keep N backups | Summary email |
+| File Cleanup | Delete old files by pattern | Summary email |
+| Folder Watcher | Move/email files by extension | Per-rule: move, email, or both |
+| Uptime Check | Monitor URL, log status | Alert email on DOWN |
+| Open URL | Open URL in browser | — |
+| Run + Email | Run script, email output file | Sends output as attachment |
 
-## System Tray
-
-A tray icon appears when Redis Operator launches. Right-click it for:
-
-- **Open Dashboard** — opens the browser
-- **Stop Redis Operator** — shuts down cleanly
-
-## Auto-start on Login (Windows)
-
-Click **⚙ Auto-start** in the top-right header. Click **Install** to add Redis Operator to your Windows Registry Run key so it launches automatically at every login. Click **Remove** to uninstall it. No administrator privileges required.
-
-## Auto-update
-
-On startup, Redis Operator silently checks the GitHub API for a newer release. If one is found, a modal dialog appears showing your current version and the available update. Click **Download Update** to go directly to the release page, or **Later** to dismiss. No data is sent — it's a single unauthenticated GET request to the public GitHub API.
-
-## Import / Export
-
-In the **Saved Profiles** panel, use **⬇ Export** to download a JSON snapshot of all workers, chains, and groups. Use **⬆ Import** to restore from a file — groups are created if missing, and any worker or chain whose name already exists is skipped. The JSON format is portable across machines.
-
-## Built-in Templates
-
-Access via the **⚙ From Template** button at the bottom of the Add Workers panel.
-
-| Template | What it does |
-|---|---|
-| Folder Backup | `shutil.copytree` a folder to a destination; prune to keep N copies |
-| File Cleanup | `glob` + age check; deletes files matching a pattern older than X days |
-| Folder Watcher | Moves files by extension to configured destination folders |
-| Uptime Check | `urllib.request` pings a URL; logs status to file; raises error if DOWN |
-| Open URL | `webbrowser.open` a URL on schedule |
-
-All templates use Python stdlib only — no extra packages required.
+All generated scripts use Python stdlib only.
 
 ## Architecture
 
 ```
-redis_operator/
-├── launch.py                    # Entry point — starts Flask, opens browser, system tray, MCP registration
-├── app.py                       # Flask backend + APScheduler + SQLite + Redis
-├── server.py                    # MCP server — gives Claude Desktop control over Redis Operator
-├── CLAUDE.md                    # Context file for Claude Code / Claude Desktop
+conductor/
+├── launch.py          # Entry point — Flask, browser, tray, MCP registration
+├── app.py             # Flask backend + APScheduler + SQLite + Redis
+├── server.py          # MCP server for Claude Desktop
+├── CLAUDE.md          # Context file for Claude Code / Desktop
 ├── static/
-│   └── index.html               # Entire frontend — HTML + CSS + JS (no frameworks)
+│   └── index.html     # Frontend — HTML + CSS + JS (no frameworks)
 ├── tasks/
-│   └── example_task.py          # Sample task
+│   └── example_task.py
 ├── templates/
-│   └── generated/               # Auto-generated template scripts (gitignored)
-├── build.bat                    # One-click installer build script
-├── build_icon.py                # Generates redis_operator.ico
-├── download_redis.py            # Downloads bundled redis-server.exe
-├── redis_operator.spec          # PyInstaller spec
-├── installer.iss                # Inno Setup installer script
-├── run_inno.py                  # Finds and runs ISCC.exe (cross-drive)
-├── requirements.txt             # Python dependencies
-└── redis_operator.db            # Auto-created SQLite database (gitignored)
+│   └── generated/     # Auto-generated template scripts
+├── build.bat          # One-click installer build
+├── build_icon.py      # Generates conductor.ico
+├── conductor.spec     # PyInstaller spec
+├── installer.iss      # Inno Setup script
+└── conductor.db       # SQLite database (auto-created)
 ```
 
-| Layer | Detail |
-|---|---|
+| Layer | Technology |
+|-------|-----------|
 | Backend | Python 3, Flask |
-| Scheduling | APScheduler — BackgroundScheduler with MemoryJobStore |
-| Persistence | SQLite (workers, chains, chain_steps, groups, profiles, run_history) |
-| Worker State | Redis (port 6379, bundled on Windows, auto-started) |
-| Frontend | Vanilla JS, no build step, single HTML file |
-
-## Claude Desktop Integration (MCP)
-
-Redis Operator automatically registers itself as an MCP server in Claude Desktop on first launch. After restarting Claude Desktop, Claude can manage your workers, chains, and logs through natural language:
-
-> "Run my metrics script every day at 8:30 PM, then email me the report"
-> "Chain these three scripts together — first two in parallel, third after both finish"
-> "Show me everything that errored today"
-> "Pause all workers in the Production group"
-
-**How it works:**
-1. On startup, Redis Operator writes an entry to Claude Desktop's `claude_desktop_config.json`
-2. Restart Claude Desktop to pick up the new MCP server
-3. Claude now has 21 tools for full control over Redis Operator
-
-The MCP server (`server.py`) is bundled with the installer. For details, see the [redis-operator-mcp](https://github.com/jarmstrong158/redis-operator-mcp) companion repo.
+| Scheduling | APScheduler (BackgroundScheduler + MemoryJobStore) |
+| Persistence | SQLite |
+| Worker State | Redis (port 6379, bundled on Windows) |
+| Frontend | Vanilla JS, single HTML file |
+| AI Integration | Claude via MCP (21 tools) + Anthropic API (error analysis) |
 
 ## AI Error Analysis
 
-The debug log panel includes an **Analyze Errors** button that becomes active when ERROR-level entries are present. Clicking it sends those errors to Claude and displays a plain-English diagnosis and recommended fix directly in the dashboard.
+The debug log includes an **Analyze Errors** button. When ERROR entries are present, click it to send them to Claude for diagnosis. Requires an Anthropic API key in `.env`:
 
-Requires an Anthropic API key. Click "Analyze Errors" to be prompted, or create a `.env` file manually:
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The `.env` file is gitignored and your key is never transmitted anywhere except directly to the Anthropic API.
+## Email Setup
+
+Click **📧 Email** in the header to configure Gmail credentials. Requires a [Gmail App Password](https://myaccount.google.com/apppasswords) (2-Step Verification must be enabled first). Credentials are stored locally in `.env` and never transmitted except to Gmail's SMTP server.
+
+Once configured, all templates and worker notifications can send email.
 
 ## API
 
 | Method | Path | Purpose |
-|---|---|---|
+|--------|------|---------|
 | `GET` | `/api/workers` | List all workers |
 | `POST` | `/api/workers` | Register worker(s) |
 | `PUT` | `/api/workers/<id>` | Update worker |
 | `POST` | `/api/workers/<id>/pause` | Toggle pause/resume |
 | `POST` | `/api/workers/<id>/run-now` | Fire immediately |
-| `GET` | `/api/workers/<id>/history` | Last 10 runs |
+| `GET` | `/api/workers/<id>/history` | Run history |
 | `POST` | `/api/workers/<id>/assign-group` | Assign to group |
 | `DELETE` | `/api/workers/<id>` | Delete worker |
 | `POST` | `/api/workers/pause-all` | Pause all workers |
@@ -239,27 +222,26 @@ The `.env` file is gitignored and your key is never transmitted anywhere except 
 | `PUT` | `/api/chains/<id>` | Update chain |
 | `POST` | `/api/chains/<id>/pause` | Toggle pause/resume |
 | `POST` | `/api/chains/<id>/run-now` | Fire immediately |
-| `GET` | `/api/chains/<id>/history` | Last 10 runs |
-| `POST` | `/api/chains/<id>/assign-group` | Assign to group |
+| `GET` | `/api/chains/<id>/history` | Run history |
 | `DELETE` | `/api/chains/<id>` | Delete chain |
-| `GET` | `/api/groups` | List all groups |
+| `GET` | `/api/groups` | List groups |
 | `POST` | `/api/groups` | Create group |
-| `PUT` | `/api/groups/<id>` | Rename group |
-| `DELETE` | `/api/groups/<id>` | Delete group (unassigns members) |
-| `GET` | `/api/profiles` | List saved profiles |
+| `DELETE` | `/api/groups/<id>` | Delete group |
+| `GET` | `/api/profiles` | List profiles |
 | `POST` | `/api/profiles` | Save profile |
 | `GET` | `/api/profiles/<id>` | Load profile |
 | `DELETE` | `/api/profiles/<id>` | Delete profile |
-| `POST` | `/api/templates` | Create worker from template |
-| `GET` | `/api/export` | Export all data as JSON |
+| `POST` | `/api/templates` | Create from template |
+| `GET` | `/api/export` | Export all as JSON |
 | `POST` | `/api/import` | Import from JSON |
-| `GET` | `/api/service/status` | Check auto-start task status |
-| `POST` | `/api/service/install` | Install auto-start task |
-| `POST` | `/api/service/uninstall` | Remove auto-start task |
-| `GET` | `/api/update-check` | Check for newer GitHub release |
-| `GET` | `/api/logs?since=N` | Log entries since offset N |
-| `GET` | `/api/redis-status` | Redis connection status |
-| `GET` | `/api/browse?mode=file\|dir` | Native OS file picker |
+| `GET/POST` | `/api/email-settings` | Email configuration |
+| `GET` | `/api/service/status` | Auto-start status |
+| `POST` | `/api/service/install` | Install auto-start |
+| `POST` | `/api/service/uninstall` | Remove auto-start |
+| `GET` | `/api/update-check` | Check for updates |
+| `GET` | `/api/logs?since=N` | Log entries |
+| `GET` | `/api/redis-status` | Redis status |
+| `GET` | `/api/browse?mode=file\|dir` | Native file picker |
 
 ## License
 

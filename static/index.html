@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Redis Operator</title>
+<title>Conductor</title>
 <style>
   /* ---- Google Fonts ---- */
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap');
@@ -866,7 +866,7 @@
   <header>
     <div class="logo">
       <div class="logo-icon">⚡</div>
-      <h1>Redis <span>Operator</span></h1>
+      <h1>Con<span>ductor</span></h1>
     </div>
     <div class="header-right">
       <button class="btn btn-ghost btn-sm" onclick="openEmailSettingsModal()" title="Configure email for notifications and templates" style="font-size:12px;">
@@ -886,7 +886,7 @@
       <div style="font-size:36px;margin-bottom:12px;">⚡</div>
       <h3 style="margin-bottom:8px;">Update Available</h3>
       <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:6px;">
-        Redis Operator <strong id="update-version" style="color:var(--accent);"></strong> is available.
+        Conductor <strong id="update-version" style="color:var(--accent);"></strong> is available.
       </p>
       <p style="color:var(--text3);font-size:12px;font-family:var(--mono);margin-bottom:20px;">
         You are running <strong id="update-current"></strong>.
@@ -1061,7 +1061,7 @@
     <!-- Step 1: pick template -->
     <div id="tmpl-step1">
       <h3>New Worker from Template</h3>
-      <p style="color:var(--text2);font-size:12px;margin-bottom:14px;">Choose a template — Redis Operator generates and manages the script for you.</p>
+      <p style="color:var(--text2);font-size:12px;margin-bottom:14px;">Choose a template — Conductor generates and manages the script for you.</p>
       <div class="template-grid">
         <div class="template-card" onclick="selectTemplate('folder_backup', this)">
           <div class="template-card-icon">📁</div>
@@ -1247,7 +1247,7 @@
   <div class="modal" style="max-width:420px;">
     <h3>Auto-start on Login</h3>
     <p style="color:var(--text2);font-size:13px;margin-bottom:16px;line-height:1.5;">
-      Register Redis Operator as a Windows Task Scheduler task so it starts automatically when you log in.
+      Register Conductor as a Windows Task Scheduler task so it starts automatically when you log in.
     </p>
     <div id="service-status-row" style="display:flex;align-items:center;gap:10px;margin-bottom:20px;font-family:var(--mono);font-size:12px;">
       <div id="service-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0;"></div>
@@ -2097,13 +2097,13 @@ async function serviceInstall() {
     const r = await fetch('/api/service/install', {method:'POST'});
     const d = await r.json();
     if (!r.ok) { toast('Install failed: ' + (d.error || r.status), 'error'); return; }
-    toast('Auto-start installed. Redis Operator will launch at login.', 'ok');
+    toast('Auto-start installed. Conductor will launch at login.', 'ok');
     openServiceModal();
   } catch(e) { toast('Error: ' + e, 'error'); }
 }
 
 async function serviceUninstall() {
-  if (!confirm('Remove auto-start task? Redis Operator will no longer launch at login.')) return;
+  if (!confirm('Remove auto-start task? Conductor will no longer launch at login.')) return;
   try {
     const r = await fetch('/api/service/uninstall', {method:'POST'});
     const d = await r.json();

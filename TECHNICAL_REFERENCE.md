@@ -1,8 +1,8 @@
-# Redis Operator — Technical Reference
+# Conductor — Technical Reference
 
 Version: 3.0
 Backend: Flask + APScheduler + SQLite + Redis
-GitHub: jarmstrong158/redis-operator
+GitHub: jarmstrong158/conductor
 
 ---
 
@@ -199,7 +199,7 @@ Actually, looking at example_task.py more carefully and the template generators:
 ### Import / Export
 
 #### `GET /api/export`
-Returns a JSON file download with Content-Disposition header. Filename: `redis_operator_YYYYMMDD_HHMMSS.json`.
+Returns a JSON file download with Content-Disposition header. Filename: `conductor_YYYYMMDD_HHMMSS.json`.
 
 Export schema:
 ```json
@@ -246,7 +246,7 @@ Returns `{"has_key": bool}` — checks `ANTHROPIC_API_KEY` env var.
 Body: `{"key": string}`. Writes/updates ANTHROPIC_API_KEY in `.env` file. Also sets it in `os.environ` immediately.
 
 #### `POST /api/analyze-logs`
-Body: `{"entries": [{ts, level, msg}]}`. Sends ERROR entries to Claude claude-sonnet-4-6 with a system prompt about Redis Operator context. Returns `{"analysis": string}`. Uses streaming internally but returns the full response (not streamed to client).
+Body: `{"entries": [{ts, level, msg}]}`. Sends ERROR entries to Claude claude-sonnet-4-6 with a system prompt about Conductor context. Returns `{"analysis": string}`. Uses streaming internally but returns the full response (not streamed to client).
 
 ---
 
@@ -289,10 +289,10 @@ File mode filters: `*.py *.bat *.sh *.cmd` and "All files".
 Returns `{"installed": bool, "supported": bool}`. Non-Windows always returns `{installed: false, supported: false}`.
 
 #### `POST /api/service/install`
-Creates Windows Task Scheduler task named "Redis Operator" with `/sc ONLOGON` trigger. Command: `"<python.exe>" "<BASE_DIR>/launch.py"`. Uses `/f` flag to force-replace existing.
+Creates Windows Task Scheduler task named "Conductor" with `/sc ONLOGON` trigger. Command: `"<python.exe>" "<BASE_DIR>/launch.py"`. Uses `/f` flag to force-replace existing.
 
 #### `POST /api/service/uninstall`
-Deletes the "Redis Operator" scheduled task.
+Deletes the "Conductor" scheduled task.
 
 ---
 
@@ -535,7 +535,7 @@ Redis is started on launch and stopped on exit (via atexit). It's checked by TCP
 
 Binary search order: bundled `redis_bundled/redis-server.exe` → system PATH.
 
-**Important**: Despite the name "Redis Operator", Redis is used minimally. The actual state management uses SQLite (persistence) and APScheduler's MemoryJobStore (scheduling). The Redis client is stored in `_redis_client` but doesn't appear to be used for any application logic in the current codebase. Redis serves as an available service rather than a core dependency for the scheduling logic.
+**Important**: Despite the name "Conductor", Redis is used minimally. The actual state management uses SQLite (persistence) and APScheduler's MemoryJobStore (scheduling). The Redis client is stored in `_redis_client` but doesn't appear to be used for any application logic in the current codebase. Redis serves as an available service rather than a core dependency for the scheduling logic.
 
 ---
 

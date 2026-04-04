@@ -1,5 +1,5 @@
 """
-app.py — Redis Operator backend
+app.py — Conductor backend
 Flask + APScheduler + SQLite + Redis
 """
 
@@ -42,13 +42,13 @@ else:
     BASE_DIR    = Path(__file__).parent.resolve()
     BUNDLE_DIR  = BASE_DIR
 
-DB_PATH       = BASE_DIR   / "redis_operator.db"
+DB_PATH       = BASE_DIR   / "conductor.db"
 STATIC_DIR    = BUNDLE_DIR / "static"
 ENV_PATH      = BASE_DIR   / ".env"
 TEMPLATES_DIR = BASE_DIR   / "templates" / "generated"
 
-VERSION = "3.0.3"
-GITHUB_REPO = "jarmstrong158/redis-operator"
+VERSION = "4.0.0"
+GITHUB_REPO = "jarmstrong158/conductor"
 
 # ---------------------------------------------------------------------------
 # Dependency management
@@ -839,7 +839,7 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
                     if error_msg:
                         body += f"\n\nError:\n{error_msg[:2000]}"
                     _send_email(w["notify_email"],
-                                f"[Redis Operator] {status_icon} \"{w['name']}\" {status_word}",
+                                f"[Conductor] {status_icon} \"{w['name']}\" {status_word}",
                                 body)
         except Exception:
             pass  # never crash on notification failure
@@ -1020,7 +1020,7 @@ def _chain_runner(chain_id: int, trigger_type: str = "scheduled"):
                 if last_error:
                     body += f"\n\nError:\n{last_error[:2000]}"
                 _send_email(c["notify_email"],
-                            f"[Redis Operator] {status_icon} \"{name}\" {status_word}",
+                            f"[Conductor] {status_icon} \"{name}\" {status_word}",
                             body)
     except Exception:
         pass
@@ -1760,7 +1760,7 @@ def analyze_logs():
             max_tokens=1024,
             system=(
                 "You are a helpful assistant that diagnoses errors in scheduled task runners. "
-                "The user is running Redis Operator, a local dashboard that schedules Python and "
+                "The user is running Conductor, a local dashboard that schedules Python and "
                 "batch workers via APScheduler. Analyze the error log entries and provide a clear, "
                 "plain-English explanation of what went wrong and exactly what the user should do "
                 "to fix it. Be concise and practical."
@@ -1835,7 +1835,7 @@ def export_data():
         ],
     }
 
-    fname = f"redis_operator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    fname = f"conductor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     from flask import Response
     return Response(
         json.dumps(payload, indent=2),
@@ -1964,7 +1964,7 @@ def import_data():
 
 # --- Windows startup (Registry Run key) ---
 _REG_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_REG_VALUE_NAME = "Redis Operator"
+_REG_VALUE_NAME = "Conductor"
 
 def _get_reg_command() -> str:
     """Build the auto-start command string."""
@@ -2034,7 +2034,7 @@ def _check_for_update():
     try:
         import urllib.request as _ur
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-        req = _ur.Request(url, headers={"User-Agent": f"redis-operator/{VERSION}"})
+        req = _ur.Request(url, headers={"User-Agent": f"conductor/{VERSION}"})
         with _ur.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
         tag   = data.get("tag_name", "").lstrip("v")

@@ -47,7 +47,7 @@ STATIC_DIR    = BUNDLE_DIR / "static"
 ENV_PATH      = BASE_DIR   / ".env"
 TEMPLATES_DIR = BASE_DIR   / "templates" / "generated"
 
-VERSION = "3.0.2"
+VERSION = "3.1.0"
 GITHUB_REPO = "jarmstrong158/redis-operator"
 
 # ---------------------------------------------------------------------------

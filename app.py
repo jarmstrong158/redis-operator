@@ -1659,50 +1659,62 @@ def import_data():
         "skipped":           skipped,
     })
 
-# --- Windows startup (Task Scheduler) ---
-_TASK_NAME = "Redis Operator"
+# --- Windows startup (Registry Run key) ---
+_REG_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_REG_VALUE_NAME = "Redis Operator"
 
-def _schtasks(*args):
-    """Run a schtasks command, return (returncode, stdout, stderr)."""
-    result = subprocess.run(
-        ["schtasks"] + list(args),
-        capture_output=True, text=True,
-    )
-    return result.returncode, result.stdout, result.stderr
+def _get_reg_command() -> str:
+    """Build the auto-start command string."""
+    python_exe = sys.executable
+    launch_py = str(BASE_DIR / "launch.py")
+    return f'"{python_exe}" "{launch_py}"'
 
 @app.route("/api/service/status", methods=["GET"])
 def service_status():
     if sys.platform != "win32":
         return jsonify({"installed": False, "supported": False})
-    rc, out, _ = _schtasks("/query", "/tn", _TASK_NAME, "/fo", "LIST")
-    return jsonify({"installed": rc == 0, "supported": True})
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REG_KEY_PATH, 0, winreg.KEY_READ)
+        try:
+            winreg.QueryValueEx(key, _REG_VALUE_NAME)
+            installed = True
+        except FileNotFoundError:
+            installed = False
+        finally:
+            winreg.CloseKey(key)
+    except Exception:
+        installed = False
+    return jsonify({"installed": installed, "supported": True})
 
 @app.route("/api/service/install", methods=["POST"])
 def service_install():
     if sys.platform != "win32":
         return jsonify({"error": "Only supported on Windows"}), 400
-    python_exe = sys.executable
-    launch_py  = str(BASE_DIR / "launch.py")
-    cmd = f'"{python_exe}" "{launch_py}"'
-    rc, out, err = _schtasks(
-        "/create", "/tn", _TASK_NAME,
-        "/tr", cmd,
-        "/sc", "ONLOGON",
-        "/f",
-    )
-    if rc != 0:
-        return jsonify({"error": err.strip() or "schtasks failed"}), 500
-    add_log("INFO", "Auto-start task installed (runs at logon).")
+    try:
+        import winreg
+        key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _REG_KEY_PATH, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, _REG_VALUE_NAME, 0, winreg.REG_SZ, _get_reg_command())
+        winreg.CloseKey(key)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    add_log("INFO", "Auto-start installed (runs at logon).")
     return jsonify({"ok": True})
 
 @app.route("/api/service/uninstall", methods=["POST"])
 def service_uninstall():
     if sys.platform != "win32":
         return jsonify({"error": "Only supported on Windows"}), 400
-    rc, out, err = _schtasks("/delete", "/tn", _TASK_NAME, "/f")
-    if rc != 0:
-        return jsonify({"error": err.strip() or "schtasks failed"}), 500
-    add_log("INFO", "Auto-start task removed.")
+    try:
+        import winreg
+        key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _REG_KEY_PATH, 0, winreg.KEY_SET_VALUE)
+        winreg.DeleteValue(key, _REG_VALUE_NAME)
+        winreg.CloseKey(key)
+    except FileNotFoundError:
+        pass  # already removed
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    add_log("INFO", "Auto-start removed.")
     return jsonify({"ok": True})
 
 # --- Update check ---

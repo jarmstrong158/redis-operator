@@ -12,6 +12,8 @@ a = Analysis(
         ('static',        'static'),
         ('tasks',         'tasks'),
         ('redis_bundled', 'redis_bundled'),
+        ('server.py',     '.'),
+        ('CLAUDE.md',     '.'),
     ],
     hiddenimports=[
         # Flask / Werkzeug

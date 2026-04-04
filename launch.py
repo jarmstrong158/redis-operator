@@ -87,6 +87,73 @@ def _run_tray(stop_event):
     icon.run()
 
 
+def _register_mcp():
+    """Register Redis Operator as an MCP server in Claude Desktop config."""
+    import json as _json
+
+    # Locate server.py — bundled next to exe, or next to this script
+    server_py = BASE_DIR / "server.py"
+    if not server_py.exists():
+        # Check inside PyInstaller _internal dir
+        bundle_dir = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+        server_py = bundle_dir / "server.py"
+    if not server_py.exists():
+        return  # server.py not found, skip
+
+    # Claude Desktop config search paths
+    candidates = []
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+    appdata = os.environ.get("APPDATA", "")
+    if localappdata:
+        candidates.append(
+            Path(localappdata) / "Packages" / "Claude_pzs8sxrjxfjjc"
+            / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json"
+        )
+    if appdata:
+        candidates.append(Path(appdata) / "Claude" / "claude_desktop_config.json")
+
+    config_path = None
+    for p in candidates:
+        if p.exists():
+            config_path = p
+            break
+
+    if config_path is None:
+        return  # Claude Desktop not installed, skip silently
+
+    try:
+        config = _json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        try:
+            from app import add_log
+            add_log("ERROR", f"MCP: could not parse {config_path} — skipping integration")
+        except Exception:
+            pass
+        return
+
+    servers = config.setdefault("mcpServers", {})
+    if "redis-operator" in servers:
+        return  # already registered
+
+    servers["redis-operator"] = {
+        "command": "python",
+        "args": [str(server_py.resolve())]
+    }
+
+    try:
+        config_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+        from app import add_log
+        add_log("INFO",
+                "Claude Desktop MCP integration registered "
+                "— restart Claude Desktop to activate")
+    except Exception as e:
+        try:
+            from app import add_log
+            add_log("ERROR", f"MCP: could not write {config_path} — {e}")
+        except Exception:
+            pass
+
+
 def main():
     print("=" * 50)
     print("  Redis Operator")
@@ -101,6 +168,7 @@ def main():
     if wait_for_server(timeout=30):
         print(f"  Server ready. Opening browser...")
         webbrowser.open(URL)
+        _register_mcp()
     else:
         print(f"  WARNING: Server did not respond within timeout.")
         print(f"  Try opening {URL} manually.")

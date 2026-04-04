@@ -22,7 +22,7 @@ A worker is one script on one schedule. Key fields:
 - `output_dir` — working directory for the subprocess
 - `group_id` — optional group assignment
 
-Python scripts must have a top-level `run()` function with no parameters. Batch/shell scripts are executed as subprocesses directly.
+All scripts are executed as subprocesses. Python scripts need `if __name__ == "__main__":` to run their logic. Batch/shell scripts are executed directly.
 
 ### Chains
 A chain strings multiple scripts into a pipeline. Key fields:
@@ -73,16 +73,43 @@ In-memory buffer, max 500 entries (oldest drop off). Levels: INFO, OK, FIRE, MAN
 8. Group pause/delete is client-side fan-out — not a single atomic backend operation
 9. Chain stop_on_failure checks between stages only — parallel steps within a stage all complete before failure is evaluated
 
+## Practical patterns
+
+### Selenium / GUI scripts
+Always set `new_console: true` for scripts that open a browser, GUI, or need user-visible interaction. Without it, Selenium scripts may fail silently or hang because they can't open a window from a background subprocess.
+
+### Debugging with new_console
+When `new_console: true`, stdout/stderr are NOT captured — error_msg will just say "exit code 1" with no details. To debug: temporarily set `new_console: false`, run the worker, check the error in history, fix it, then set `new_console` back to `true`.
+
+### Email automation pattern
+For "run script then email the output" workflows, create a wrapper script that:
+1. Runs the main script via `subprocess.run()`
+2. Locates the output file
+3. Sends it via `smtplib.SMTP_SSL("smtp.gmail.com", 465)` using a Gmail App Password
+
+Store credentials as env_vars on the worker (not hardcoded in the script):
+```
+GMAIL_USER=user@gmail.com
+GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+EMAIL_TO=recipient@gmail.com
+```
+
+Gmail App Passwords require 2-Step Verification enabled on the Google account. Generate at https://myaccount.google.com/apppasswords.
+
+### Common dependency issues
+If a script fails with `ModuleNotFoundError`, Redis Operator auto-retries once after pip-installing the missing module. But for `new_console: true` workers, the auto-install won't trigger (no stderr captured). Pre-install dependencies or use the `requirements` field on the worker.
+
 ## When helping a user set up Redis Operator
 
 Walk through in this order:
 1. Confirm Redis Operator is running (check redis status, then list workers)
 2. Ask what they want to automate — script path, what it does, when it should run
-3. Confirm the script has a `run()` function if it's a .py file
+3. If the script uses Selenium/browser/GUI, set `new_console: true`. Pre-install dependencies with the `requirements` field since auto-install won't work with `new_console`.
 4. Choose the right schedule type based on their description
 5. Create the worker, then run it immediately to verify it works
-6. Check the logs to confirm success or diagnose failure
-7. If chaining scripts, ask about dependencies between them to determine if parallel stages make sense
+6. Check worker history to confirm success or diagnose failure
+7. If it failed with `new_console: true`, temporarily toggle it off and re-run to capture the real error
+8. If chaining scripts, ask about dependencies between them to determine if parallel stages make sense
 
 ## API base URL
 http://127.0.0.1:5000

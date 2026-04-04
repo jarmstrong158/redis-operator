@@ -8,7 +8,7 @@ A local web dashboard for managing scheduled Python and batch workers via Redis 
 
 - **Active Workers Panel** — live table of all running workers and chains with next trigger time and remaining runs today. Pause/resume or delete individual items, or bulk pause/delete all at once.
 - **Flexible Scheduling** — Fixed Times (e.g. `09:00, 14:30, 17:00` — fires daily at each listed time), Interval (e.g. `2h 30m` — repeats on a loop), or Cron expression (e.g. `0 9 * * 1-5` with a plain-English preview).
-- **Task Support** — Python files (`.py` with a `run()` function), batch files (`.bat`, `.cmd`), and shell scripts (`.sh`). Interactive scripts (menus, input prompts, GUI tools) can run in a **new terminal window** via a per-worker checkbox.
+- **Task Support** — Python files (`.py`), batch files (`.bat`, `.cmd`), and shell scripts (`.sh`). All scripts run as subprocesses. Interactive scripts (Selenium, GUI tools, input prompts) can run in a **new terminal window** via a per-worker checkbox.
 - **Worker Timeout** — optional per-worker timeout (minutes). If a task runs over, it is killed and logged as an error.
 - **Per-worker Environment Variables** — inject `KEY=VALUE` pairs (one per line) into a worker's subprocess environment.
 - **Run Now** — fire any worker or chain immediately outside its schedule. Logged with a purple MANUAL tag in the debug panel.
@@ -21,8 +21,9 @@ A local web dashboard for managing scheduled Python and batch workers via Redis 
 - **Saved Profiles** — save and load named worker configurations. Switch between setups instantly.
 - **Import / Export** — export all workers, chains, chain steps, and groups to a portable JSON file. Import on any machine; groups are created if missing, name conflicts are skipped.
 - **System Tray Icon** — a tray icon appears with Open Dashboard and Stop menu items. Right-click to stop cleanly without a terminal.
-- **Auto-start on Login (Windows)** — one-click install via Task Scheduler (⚙ Auto-start in the header). Redis Operator launches automatically at logon. No admin required.
-- **Auto-update Check** — on startup, silently checks GitHub for a newer release. If one is available, a dismissible banner appears with the version number and a direct download link.
+- **Auto-start on Login (Windows)** — one-click install via the Registry Run key (⚙ Auto-start in the header). Redis Operator launches automatically at logon. No admin required.
+- **Auto-update Check** — on startup, silently checks GitHub for a newer release. If one is found, a modal dialog appears showing your current version vs the new version. Must be acknowledged before continuing.
+- **Claude Desktop MCP Integration** — on startup, Redis Operator automatically registers itself as an MCP server in Claude Desktop's config. After restarting Claude Desktop, Claude can control workers, chains, groups, and logs through natural language. See the [MCP companion repo](https://github.com/jarmstrong158/redis-operator-mcp) for details.
 - **Debug Log** — live scrolling log panel with color-coded entries (INFO, OK, FIRE, MANUAL, ERROR, PAUSE, DELETE). Filter by level pill or keyword search. Auto-scroll toggle and clear display.
 - **Redis Auto-Start** — detects whether Redis is already running; starts it automatically if not. The Windows installer bundles Redis — no separate install needed.
 - **Persistent State** — all workers, chains, groups, and profiles stored in SQLite. Workers and chains automatically restore on restart.
@@ -106,10 +107,10 @@ To force a full PyInstaller rebuild (e.g. after changing Python code):
 
 ### Python (`.py`)
 
-Must have a module-level `run()` function with no parameters:
+Scripts are executed as subprocesses. Use a standard `if __name__` guard:
 
 ```python
-def run():
+if __name__ == "__main__":
     print("Task executed!")
 ```
 
@@ -136,15 +137,11 @@ A tray icon appears when Redis Operator launches. Right-click it for:
 
 ## Auto-start on Login (Windows)
 
-Click **⚙ Auto-start** in the top-right header. Click **Install** to register a Windows Task Scheduler task that launches Redis Operator at every login. Click **Remove** to uninstall it. No administrator privileges required.
+Click **⚙ Auto-start** in the top-right header. Click **Install** to add Redis Operator to your Windows Registry Run key so it launches automatically at every login. Click **Remove** to uninstall it. No administrator privileges required.
 
 ## Auto-update
 
-On startup, Redis Operator silently checks the GitHub API for a newer release. If one is found, a blue banner appears at the top of the dashboard:
-
-> 🎉 Redis Operator v3.1 is available! Download →
-
-Click the link to go directly to the release page. Dismiss with ✕. No data is sent — it's a single unauthenticated GET request to the public GitHub API.
+On startup, Redis Operator silently checks the GitHub API for a newer release. If one is found, a modal dialog appears showing your current version and the available update. Click **Download Update** to go directly to the release page, or **Later** to dismiss. No data is sent — it's a single unauthenticated GET request to the public GitHub API.
 
 ## Import / Export
 
@@ -168,12 +165,14 @@ All templates use Python stdlib only — no extra packages required.
 
 ```
 redis_operator/
-├── launch.py                    # Entry point — starts Flask, opens browser, system tray
+├── launch.py                    # Entry point — starts Flask, opens browser, system tray, MCP registration
 ├── app.py                       # Flask backend + APScheduler + SQLite + Redis
+├── server.py                    # MCP server — gives Claude Desktop control over Redis Operator
+├── CLAUDE.md                    # Context file for Claude Code / Claude Desktop
 ├── static/
 │   └── index.html               # Entire frontend — HTML + CSS + JS (no frameworks)
 ├── tasks/
-│   └── example_task.py          # Sample task with run() function
+│   └── example_task.py          # Sample task
 ├── templates/
 │   └── generated/               # Auto-generated template scripts (gitignored)
 ├── build.bat                    # One-click installer build script
@@ -193,6 +192,22 @@ redis_operator/
 | Persistence | SQLite (workers, chains, chain_steps, groups, profiles, run_history) |
 | Worker State | Redis (port 6379, bundled on Windows, auto-started) |
 | Frontend | Vanilla JS, no build step, single HTML file |
+
+## Claude Desktop Integration (MCP)
+
+Redis Operator automatically registers itself as an MCP server in Claude Desktop on first launch. After restarting Claude Desktop, Claude can manage your workers, chains, and logs through natural language:
+
+> "Run my metrics script every day at 8:30 PM, then email me the report"
+> "Chain these three scripts together — first two in parallel, third after both finish"
+> "Show me everything that errored today"
+> "Pause all workers in the Production group"
+
+**How it works:**
+1. On startup, Redis Operator writes an entry to Claude Desktop's `claude_desktop_config.json`
+2. Restart Claude Desktop to pick up the new MCP server
+3. Claude now has 21 tools for full control over Redis Operator
+
+The MCP server (`server.py`) is bundled with the installer. For details, see the [redis-operator-mcp](https://github.com/jarmstrong158/redis-operator-mcp) companion repo.
 
 ## AI Error Analysis
 

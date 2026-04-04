@@ -623,32 +623,6 @@
 
   #redis-error-banner.show { display: block; }
 
-  /* ---- Update banner ---- */
-  #update-banner {
-    display: none;
-    background: rgba(0,200,255,0.07);
-    border: 1px solid rgba(0,200,255,0.25);
-    border-radius: var(--radius);
-    padding: 10px 16px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    display: none;
-    align-items: center;
-    gap: 12px;
-  }
-  #update-banner.show { display: flex; }
-  #update-banner a { color: var(--accent); font-weight: 600; text-decoration: none; }
-  #update-banner a:hover { text-decoration: underline; }
-  #update-banner .dismiss {
-    margin-left: auto;
-    cursor: pointer;
-    color: var(--text3);
-    font-size: 16px;
-    line-height: 1;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-  #update-banner .dismiss:hover { color: var(--text2); background: var(--bg3); }
 
   /* ---- Responsive ---- */
   @media (max-width: 640px) {
@@ -903,11 +877,22 @@
     </div>
   </header>
 
-  <!-- Update available banner -->
-  <div id="update-banner">
-    <span>🎉 Redis Operator <strong id="update-version"></strong> is available!</span>
-    <a id="update-link" href="#" target="_blank" rel="noopener">Download →</a>
-    <span class="dismiss" onclick="document.getElementById('update-banner').classList.remove('show')" title="Dismiss">✕</span>
+  <!-- Update available modal -->
+  <div class="modal-overlay" id="update-modal">
+    <div class="modal" style="text-align:center;max-width:420px;">
+      <div style="font-size:36px;margin-bottom:12px;">⚡</div>
+      <h3 style="margin-bottom:8px;">Update Available</h3>
+      <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:6px;">
+        Redis Operator <strong id="update-version" style="color:var(--accent);"></strong> is available.
+      </p>
+      <p style="color:var(--text3);font-size:12px;font-family:var(--mono);margin-bottom:20px;">
+        You are running <strong id="update-current"></strong>.
+      </p>
+      <div class="modal-actions" style="justify-content:center;">
+        <button class="btn btn-ghost" onclick="closeModal('update-modal')">Later</button>
+        <a id="update-link" href="#" target="_blank" rel="noopener" class="btn btn-primary" style="text-decoration:none;">Download Update</a>
+      </div>
+    </div>
   </div>
 
   <!-- Redis error banner -->
@@ -1379,8 +1364,9 @@ async function checkForUpdate() {
     const d = await r.json();
     if (d.available && d.latest && d.url) {
       document.getElementById('update-version').textContent = 'v' + d.latest;
+      document.getElementById('update-current').textContent = 'v' + (d.current || '?');
       document.getElementById('update-link').href = d.url;
-      document.getElementById('update-banner').classList.add('show');
+      openModal('update-modal');
     }
   } catch(e) {}
 }

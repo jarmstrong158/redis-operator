@@ -869,6 +869,9 @@
       <h1>Redis <span>Operator</span></h1>
     </div>
     <div class="header-right">
+      <button class="btn btn-ghost btn-sm" onclick="openEmailSettingsModal()" title="Configure email for notifications and templates" style="font-size:12px;">
+        <span id="email-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text3);margin-right:4px;"></span>📧 Email
+      </button>
       <button class="btn btn-ghost btn-sm" onclick="openServiceModal()" title="Manage auto-start on login" style="font-size:12px;">⚙ Auto-start</button>
       <div class="redis-badge">
         <div class="redis-dot" id="redis-dot"></div>
@@ -1085,6 +1088,11 @@
           <div class="template-card-name">Open URL</div>
           <div class="template-card-desc">Open a URL in your browser on a schedule</div>
         </div>
+        <div class="template-card" onclick="selectTemplate('run_and_email', this)">
+          <div class="template-card-icon">📨</div>
+          <div class="template-card-name">Run + Email</div>
+          <div class="template-card-desc">Run a script, then email the output file to a recipient</div>
+        </div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal('template-modal')">Cancel</button>
@@ -1209,6 +1217,24 @@
         <span style="color:var(--text3);font-weight:400;font-size:11px;"> — for interactive scripts</span>
       </label>
     </div>
+    <div style="border-top:1px solid var(--border);margin:14px 0;padding-top:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:10px;">Email Notifications</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Notify Email <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+          <input type="email" id="edit-notify-email" class="form-input" placeholder="recipient@gmail.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notify On</label>
+          <select id="edit-notify-on" class="form-input" style="padding:8px 10px;">
+            <option value="always">Always</option>
+            <option value="failure">On Failure</option>
+            <option value="success">On Success</option>
+          </select>
+        </div>
+      </div>
+      <div class="sched-hint">Send an email after each run based on the condition. Requires email settings configured.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('edit-worker-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmEditWorker()">Save Changes</button>
@@ -1275,6 +1301,33 @@
   </div>
 </div>
 
+<!-- Email Settings Modal -->
+<div class="modal-overlay" id="email-settings-modal">
+  <div class="modal">
+    <h3>Email Settings</h3>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:14px;line-height:1.5;">
+      Configure a Gmail account for email notifications and template email features.
+    </p>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Gmail Address</label>
+      <input type="email" id="email-settings-user" class="form-input" placeholder="you@gmail.com" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">App Password</label>
+      <input type="password" id="email-settings-pass" class="form-input" placeholder="xxxx xxxx xxxx xxxx" />
+    </div>
+    <div class="api-key-warning">
+      &#9888; Requires a Gmail App Password, not your regular password.<br/>
+      Enable 2-Step Verification first, then generate at
+      <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:var(--yellow);">myaccount.google.com/apppasswords</a>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('email-settings-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEmailSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- New/Edit Chain Modal -->
 <div class="modal-overlay" id="chain-modal">
   <div class="modal" style="min-width:520px;max-width:620px;">
@@ -1310,6 +1363,23 @@
       <select id="chain-group" class="form-input" style="padding:8px 10px;">
         <option value="">— No group —</option>
       </select>
+    </div>
+    <div style="border-top:1px solid var(--border);margin:14px 0;padding-top:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:10px;">Email Notifications</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Notify Email <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+          <input type="email" id="chain-notify-email" class="form-input" placeholder="recipient@gmail.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notify On</label>
+          <select id="chain-notify-on" class="form-input" style="padding:8px 10px;">
+            <option value="always">Always</option>
+            <option value="failure">On Failure</option>
+            <option value="success">On Success</option>
+          </select>
+        </div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('chain-modal')">Cancel</button>
@@ -2141,6 +2211,7 @@ function tmplNext() {
     folder_watcher: 'Folder Watcher',
     uptime_check:   'Website Uptime Check',
     open_url:       'Open URL',
+    run_and_email:  'Run + Email',
   };
   document.getElementById('tmpl-step2-title').textContent = `Configure — ${titles[selectedTemplate]}`;
   document.getElementById('tmpl-worker-name').value = '';
@@ -2236,6 +2307,45 @@ function renderTmplConfigFields(type) {
         <input type="text" id="tmpl-url" class="form-input" placeholder="https://example.com" />
         <div class="sched-hint">Opens in your default browser at the scheduled time</div>
       </div>`;
+  } else if (type === 'run_and_email') {
+    el.innerHTML = `
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label">Script to Run</label>
+        <div class="input-with-btn">
+          <input type="text" id="tmpl-script-path" class="form-input" placeholder="/path/to/script.py" />
+          <button class="btn btn-ghost btn-sm" onclick="tmplBrowseFile('tmpl-script-path')">Browse</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label">Output File to Email</label>
+        <div class="input-with-btn">
+          <input type="text" id="tmpl-output-file" class="form-input" placeholder="/path/to/output.xlsx" />
+          <button class="btn btn-ghost btn-sm" onclick="tmplBrowseFile('tmpl-output-file')">Browse</button>
+        </div>
+        <div class="sched-hint">The file that will be attached to the email after the script runs</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email To</label>
+        <input type="email" id="tmpl-email-to" class="form-input" placeholder="recipient@gmail.com" />
+      </div>`;
+  }
+
+  // Add email options for templates that support it (except open_url and run_and_email which handle their own)
+  if (['folder_backup', 'file_cleanup', 'uptime_check'].includes(type)) {
+    const label = type === 'uptime_check' ? 'Email alert when DOWN' : 'Email summary after run';
+    el.innerHTML += `
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">
+        <label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text2);cursor:pointer;">
+          <input type="checkbox" id="tmpl-enable-email" style="accent-color:var(--accent);" onchange="document.getElementById('tmpl-email-field').style.display=this.checked?'':'none'" />
+          ${label}
+        </label>
+        <div id="tmpl-email-field" style="display:none;margin-top:8px;">
+          <div class="form-group">
+            <label class="form-label">Recipient Email</label>
+            <input type="email" id="tmpl-summary-email" class="form-input" placeholder="recipient@gmail.com" />
+          </div>
+        </div>
+      </div>`;
   }
 }
 
@@ -2250,9 +2360,10 @@ function addWatcherRule() {
     <input type="text" class="form-input watcher-ext" placeholder=".pdf" style="max-width:72px;" />
     <span style="color:var(--text2);font-size:13px;flex-shrink:0;">→</span>
     <div class="input-with-btn" style="flex:1;">
-      <input type="text" class="form-input watcher-dest" placeholder="/path/to/destination" />
+      <input type="text" class="form-input watcher-dest" placeholder="/path/to/destination (optional)" />
       <button class="btn btn-ghost btn-sm" onclick="tmplBrowseDirInto(${n})">Browse</button>
     </div>
+    <input type="email" class="form-input watcher-email" placeholder="email to (optional)" style="max-width:180px;" />
     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('watcher-rule-${n}').remove()" title="Remove">✕</button>`;
   container.appendChild(row);
 }
@@ -2336,20 +2447,23 @@ async function confirmTemplate() {
     const source = document.getElementById('tmpl-source')?.value.trim();
     const dest   = document.getElementById('tmpl-dest')?.value.trim();
     if (!source || !dest) { toast('Source and destination folders required.', 'error'); return; }
-    config = { source, dest, keep: document.getElementById('tmpl-keep')?.value || '3' };
+    const summaryEmail = document.getElementById('tmpl-enable-email')?.checked ? (document.getElementById('tmpl-summary-email')?.value.trim() || '') : '';
+    config = { source, dest, keep: document.getElementById('tmpl-keep')?.value || '3', summary_email: summaryEmail };
   } else if (selectedTemplate === 'file_cleanup') {
     const folder = document.getElementById('tmpl-folder')?.value.trim();
     if (!folder) { toast('Target folder required.', 'error'); return; }
+    const summaryEmail2 = document.getElementById('tmpl-enable-email')?.checked ? (document.getElementById('tmpl-summary-email')?.value.trim() || '') : '';
     config = { folder, pattern: document.getElementById('tmpl-pattern')?.value.trim() || '*.tmp',
-                days: document.getElementById('tmpl-days')?.value || '7' };
+                days: document.getElementById('tmpl-days')?.value || '7', summary_email: summaryEmail2 };
   } else if (selectedTemplate === 'folder_watcher') {
     const watch = document.getElementById('tmpl-watch')?.value.trim();
     if (!watch) { toast('Watch folder required.', 'error'); return; }
     const rules = [];
     document.querySelectorAll('.watcher-rule').forEach(row => {
-      const ext  = row.querySelector('.watcher-ext')?.value.trim();
-      const dest = row.querySelector('.watcher-dest')?.value.trim();
-      if (ext && dest) rules.push({ ext, dest });
+      const ext      = row.querySelector('.watcher-ext')?.value.trim();
+      const dest     = row.querySelector('.watcher-dest')?.value.trim();
+      const email_to = row.querySelector('.watcher-email')?.value.trim() || '';
+      if (ext && (dest || email_to)) rules.push({ ext, dest, email_to });
     });
     if (!rules.length) { toast('Add at least one extension rule.', 'error'); return; }
     config = { watch, rules };
@@ -2357,11 +2471,20 @@ async function confirmTemplate() {
     const url     = document.getElementById('tmpl-url')?.value.trim();
     const logFile = document.getElementById('tmpl-logfile')?.value.trim();
     if (!url || !logFile) { toast('URL and log file path required.', 'error'); return; }
-    config = { url, log_file: logFile };
+    const alertEmail = document.getElementById('tmpl-enable-email')?.checked ? (document.getElementById('tmpl-summary-email')?.value.trim() || '') : '';
+    config = { url, log_file: logFile, alert_email: alertEmail };
   } else if (selectedTemplate === 'open_url') {
     const url = document.getElementById('tmpl-url')?.value.trim();
     if (!url) { toast('URL required.', 'error'); return; }
     config = { url };
+  } else if (selectedTemplate === 'run_and_email') {
+    const scriptPath = document.getElementById('tmpl-script-path')?.value.trim();
+    const outputFile = document.getElementById('tmpl-output-file')?.value.trim();
+    const emailTo    = document.getElementById('tmpl-email-to')?.value.trim();
+    if (!scriptPath) { toast('Script path required.', 'error'); return; }
+    if (!outputFile) { toast('Output file path required.', 'error'); return; }
+    if (!emailTo) { toast('Recipient email required.', 'error'); return; }
+    config = { script_path: scriptPath, output_file: outputFile, email_to: emailTo };
   }
 
   try {
@@ -2499,6 +2622,8 @@ function editWorker(id) {
   document.getElementById('edit-timeout').value = w.timeout_minutes || 0;
   document.getElementById('edit-env-vars').value = w.env_vars || '';
   document.getElementById('edit-new-console').checked = !!w.new_console;
+  document.getElementById('edit-notify-email').value = w.notify_email || '';
+  document.getElementById('edit-notify-on').value = w.notify_on || 'always';
   setEditSchedType(w.sched_type, null, w.sched_value);
   // Populate and set group dropdown
   populateGroupDropdowns();
@@ -2591,6 +2716,8 @@ async function confirmEditWorker() {
   const newConsole     = document.getElementById('edit-new-console')?.checked || false;
   const timeoutMinutes = parseInt(document.getElementById('edit-timeout')?.value || '0') || 0;
   const envVars        = document.getElementById('edit-env-vars')?.value || '';
+  const notifyEmail    = document.getElementById('edit-notify-email')?.value.trim() || '';
+  const notifyOn       = document.getElementById('edit-notify-on')?.value || 'always';
 
   try {
     const r = await fetch(`/api/workers/${editingWorkerId}`, {
@@ -2600,7 +2727,7 @@ async function confirmEditWorker() {
                             sched_value: schedVal, output_dir: outdir,
                             group_id: groupId ? parseInt(groupId) : null,
                             requirements, new_console: newConsole, timeout_minutes: timeoutMinutes,
-                            env_vars: envVars}),
+                            env_vars: envVars, notify_email: notifyEmail, notify_on: notifyOn}),
     });
     const d = await r.json();
     if (r.ok) {
@@ -2765,6 +2892,8 @@ function openNewChainModal() {
   populateGroupDropdowns();
   const grpSel = document.getElementById('chain-group');
   if (grpSel) grpSel.value = '';
+  document.getElementById('chain-notify-email').value = '';
+  document.getElementById('chain-notify-on').value = 'always';
   addChainStep();
   openModal('chain-modal');
   setTimeout(() => document.getElementById('chain-name').focus(), 100);
@@ -2879,6 +3008,8 @@ async function confirmChain() {
   const schedVal = getChainSchedValue();
   const stopOnFailure = document.getElementById('chain-stop-on-failure').checked;
   const groupIdRaw = document.getElementById('chain-group')?.value || '';
+  const notifyEmail = document.getElementById('chain-notify-email')?.value.trim() || '';
+  const notifyOn = document.getElementById('chain-notify-on')?.value || 'always';
 
   const payload = {
     name,
@@ -2886,6 +3017,8 @@ async function confirmChain() {
     sched_value: schedVal,
     stop_on_failure: stopOnFailure,
     group_id: groupIdRaw ? parseInt(groupIdRaw) : null,
+    notify_email: notifyEmail,
+    notify_on: notifyOn,
     steps,
   };
 
@@ -2938,6 +3071,8 @@ function editChain(id) {
   populateGroupDropdowns();
   const grpSel = document.getElementById('chain-group');
   if (grpSel) grpSel.value = c.group_id || '';
+  document.getElementById('chain-notify-email').value = c.notify_email || '';
+  document.getElementById('chain-notify-on').value = c.notify_on || 'always';
   openModal('chain-modal');
 }
 
@@ -3086,6 +3221,54 @@ function updateCronPreview(input) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Email Settings
+// ═══════════════════════════════════════════════════════════════
+async function checkEmailSettings() {
+  try {
+    const r = await fetch('/api/email-settings');
+    const d = await r.json();
+    const dot = document.getElementById('email-dot');
+    if (dot) {
+      dot.style.background = d.has_credentials ? 'var(--green)' : 'var(--text3)';
+      if (d.has_credentials) dot.style.boxShadow = '0 0 4px var(--green)';
+      else dot.style.boxShadow = 'none';
+    }
+  } catch(e) {}
+}
+
+async function openEmailSettingsModal() {
+  try {
+    const r = await fetch('/api/email-settings');
+    const d = await r.json();
+    document.getElementById('email-settings-user').value = d.email || '';
+    document.getElementById('email-settings-pass').value = '';
+  } catch(e) {}
+  openModal('email-settings-modal');
+  setTimeout(() => document.getElementById('email-settings-user').focus(), 100);
+}
+
+async function saveEmailSettings() {
+  const email = document.getElementById('email-settings-user').value.trim();
+  const password = document.getElementById('email-settings-pass').value.trim();
+  if (!email || !password) { toast('Email and app password required.', 'error'); return; }
+  try {
+    const r = await fetch('/api/email-settings', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email, password}),
+    });
+    if (r.ok) {
+      toast('Email settings saved.', 'ok');
+      closeModal('email-settings-modal');
+      checkEmailSettings();
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.error || 'Unknown'), 'error');
+    }
+  } catch(e) { toast('Failed: ' + e, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Utility
 // ═══════════════════════════════════════════════════════════════
 function escHtml(s) {
@@ -3106,6 +3289,7 @@ function init() {
   refreshGroups().then(() => refreshWorkers());
   refreshProfiles();
   checkRedisStatus();
+  checkEmailSettings();
   checkForUpdate();
   pollLogs();
 

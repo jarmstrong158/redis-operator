@@ -143,13 +143,23 @@ def _gen_folder_backup(cfg: dict) -> str:
     source = cfg.get("source", "")
     dest   = cfg.get("dest", "")
     keep   = int(cfg.get("keep", 3))
-    return f'''import shutil, os, datetime
+    summary_email = cfg.get("summary_email", "").strip()
+    email_block = ""
+    if summary_email:
+        email_block = f'''
+    _send_email(
+        "{summary_email}",
+        f"[Backup] {{os.path.basename(SOURCE)}} — {{len(backups)}}/{{KEEP}} copies",
+        f"Backup complete: {{dst}}\\n{{len(backups)}}/{{KEEP}} copies retained.",
+    )'''
+    return (_EMAIL_HELPER_CODE if summary_email else '') + f'''
+import shutil, os, datetime
 
 SOURCE = r"{source}"
 DEST   = r"{dest}"
 KEEP   = {keep}
 
-def run():
+if __name__ == "__main__":
     ts  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     dst = os.path.join(DEST, f"backup_{{ts}}")
     os.makedirs(DEST, exist_ok=True)
@@ -161,19 +171,31 @@ def run():
     while len(backups) > KEEP:
         shutil.rmtree(backups.pop(0))
     print(f"Backup complete: {{dst}} ({{len(backups)}}/{{KEEP}} copies)")
+{email_block}
 '''
 
 def _gen_file_cleanup(cfg: dict) -> str:
     folder  = cfg.get("folder", "")
     pattern = cfg.get("pattern", "*.tmp")
     days    = int(cfg.get("days", 7))
-    return f'''import glob, os, time
+    summary_email = cfg.get("summary_email", "").strip()
+    email_block = ""
+    if summary_email:
+        email_block = f'''
+    if removed > 0:
+        _send_email(
+            "{summary_email}",
+            f"[Cleanup] {{removed}} file(s) removed from {{os.path.basename(FOLDER)}}",
+            f"Cleanup: {{removed}} file(s) matching {{PATTERN}} older than {{DAYS}} days removed from {{FOLDER}}",
+        )'''
+    return (_EMAIL_HELPER_CODE if summary_email else '') + f'''
+import glob, os, time
 
 FOLDER  = r"{folder}"
 PATTERN = "{pattern}"
 DAYS    = {days}
 
-def run():
+if __name__ == "__main__":
     cutoff = time.time() - (DAYS * 86400)
     removed = 0
     for f in glob.glob(os.path.join(FOLDER, PATTERN)):
@@ -181,41 +203,73 @@ def run():
             os.remove(f)
             removed += 1
     print(f"Cleanup: {{removed}} file(s) removed matching {{PATTERN}} older than {{DAYS}} days")
+{email_block}
 '''
 
 def _gen_folder_watcher(cfg: dict) -> str:
     watch = cfg.get("watch", "")
     rules = cfg.get("rules", [])
-    rules_dict = {r["ext"].lower(): r["dest"] for r in rules if r.get("ext") and r.get("dest")}
-    return f'''import os, shutil
+    # Build rules: {".ext": {"dest": path_or_empty, "email_to": addr_or_empty}}
+    rules_dict = {}
+    has_email = False
+    for r in rules:
+        ext = (r.get("ext") or "").lower()
+        dest = r.get("dest", "")
+        email_to = r.get("email_to", "")
+        if ext and (dest or email_to):
+            rules_dict[ext] = {"dest": dest, "email_to": email_to}
+            if email_to:
+                has_email = True
+    return (_EMAIL_HELPER_CODE if has_email else '') + f'''
+import os, shutil
 
 WATCH = r"{watch}"
-RULES = {repr(rules_dict)}  # {{".ext": r"destination_folder"}}
+RULES = {repr(rules_dict)}
 
-def run():
+if __name__ == "__main__":
     moved = 0
+    emailed = 0
     for fname in os.listdir(WATCH):
         fpath = os.path.join(WATCH, fname)
         if not os.path.isfile(fpath):
             continue
         ext = os.path.splitext(fname)[1].lower()
         if ext in RULES:
-            dest = RULES[ext]
-            os.makedirs(dest, exist_ok=True)
-            shutil.move(fpath, os.path.join(dest, fname))
-            moved += 1
-    print(f"Folder watcher: {{moved}} file(s) moved")
+            rule = RULES[ext]
+            dest = rule.get("dest", "")
+            email_to = rule.get("email_to", "")
+            if email_to:
+                _send_email(email_to, f"File: {{fname}}", f"Attached file from {{WATCH}}", [fpath])
+                emailed += 1
+            if dest:
+                os.makedirs(dest, exist_ok=True)
+                shutil.move(fpath, os.path.join(dest, fname))
+                moved += 1
+            elif email_to and not dest:
+                pass  # emailed only, no move
+    print(f"Folder watcher: {{moved}} moved, {{emailed}} emailed")
 '''
 
 def _gen_uptime_check(cfg: dict) -> str:
-    url      = cfg.get("url", "")
-    log_file = cfg.get("log_file", "")
-    return f'''import urllib.request, datetime, os
+    url         = cfg.get("url", "")
+    log_file    = cfg.get("log_file", "")
+    alert_email = cfg.get("alert_email", "").strip()
+    email_block = ""
+    if alert_email:
+        email_block = f'''
+    if status.startswith("DOWN"):
+        _send_email(
+            "{alert_email}",
+            f"[Alert] {{URL}} is DOWN",
+            f"{{URL}} is not responding.\\n\\n[{{ts}}] {{status}}",
+        )'''
+    return (_EMAIL_HELPER_CODE if alert_email else '') + f'''
+import urllib.request, datetime, os
 
 URL      = "{url}"
 LOG_FILE = r"{log_file}"
 
-def run():
+if __name__ == "__main__":
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         urllib.request.urlopen(URL, timeout=10)
@@ -226,6 +280,7 @@ def run():
     with open(LOG_FILE, "a") as f:
         f.write(f"[{{ts}}] {{URL}} — {{status}}\\n")
     print(f"[{{ts}}] {{URL}} — {{status}}")
+{email_block}
     if status.startswith("DOWN"):
         raise RuntimeError(f"Site down: {{URL}} — {{status}}")
 '''
@@ -236,9 +291,47 @@ def _gen_open_url(cfg: dict) -> str:
 
 URL = "{url}"
 
-def run():
+if __name__ == "__main__":
     webbrowser.open(URL)
     print(f"Opened: {{URL}}")
+'''
+
+
+def _gen_run_and_email(cfg: dict) -> str:
+    script_path = cfg.get("script_path", "")
+    output_file = cfg.get("output_file", "")
+    email_to    = cfg.get("email_to", "")
+    return _EMAIL_HELPER_CODE + f'''
+import subprocess, sys, os, datetime
+
+SCRIPT_PATH = r"{script_path}"
+OUTPUT_FILE = r"{output_file}"
+EMAIL_TO    = "{email_to}"
+
+if __name__ == "__main__":
+    print(f"Running {{os.path.basename(SCRIPT_PATH)}} ...")
+    result = subprocess.run(
+        [sys.executable, SCRIPT_PATH],
+        capture_output=True, text=True,
+        cwd=os.path.dirname(SCRIPT_PATH) or ".",
+    )
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Script failed (exit {{result.returncode}}):\\n{{result.stderr.strip()}}"
+        )
+    print(f"Script completed. Looking for output: {{OUTPUT_FILE}}")
+    if not os.path.isfile(OUTPUT_FILE):
+        raise FileNotFoundError(f"Output file not found: {{OUTPUT_FILE}}")
+    today = datetime.datetime.now().strftime("%m/%d/%Y")
+    _send_email(
+        EMAIL_TO,
+        f"Report — {{os.path.basename(OUTPUT_FILE)}} ({{today}})",
+        f"Automated report generated on {{today}}.\\nAttached: {{os.path.basename(OUTPUT_FILE)}}",
+        [OUTPUT_FILE],
+    )
+    print("Done.")
 '''
 
 TEMPLATE_GENERATORS = {
@@ -247,6 +340,7 @@ TEMPLATE_GENERATORS = {
     "folder_watcher": _gen_folder_watcher,
     "uptime_check":   _gen_uptime_check,
     "open_url":       _gen_open_url,
+    "run_and_email":  _gen_run_and_email,
 }
 
 def _load_dotenv():
@@ -263,6 +357,113 @@ def _load_dotenv():
             val = val.strip().strip('"').strip("'")
             if key and key not in os.environ:
                 os.environ[key] = val
+
+# ---------------------------------------------------------------------------
+# Email helper
+# ---------------------------------------------------------------------------
+def _save_env_key(key: str, value: str):
+    """Write or update a single KEY=VALUE in the .env file and set os.environ."""
+    lines = []
+    replaced = False
+    if ENV_PATH.exists():
+        with open(ENV_PATH) as f:
+            for line in f:
+                if line.strip().startswith(key):
+                    lines.append(f"{key}={value}\n")
+                    replaced = True
+                else:
+                    lines.append(line)
+    if not replaced:
+        lines.append(f"{key}={value}\n")
+    with open(ENV_PATH, "w") as f:
+        f.writelines(lines)
+    os.environ[key] = value
+
+
+def _send_email(to: str, subject: str, body_text: str,
+                attachments: list = None) -> bool:
+    """Send an email via Gmail SMTP. Returns True on success, False on failure.
+    Never raises — logs errors and continues."""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    gmail_user = os.environ.get("GMAIL_USER", "").strip()
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    if not gmail_user or not gmail_pass:
+        add_log("ERROR", "Email send failed — Gmail credentials not configured")
+        return False
+    if not to or not to.strip():
+        return False
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = gmail_user
+        msg["To"] = to.strip()
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body_text, "plain"))
+
+        for filepath in (attachments or []):
+            if not os.path.isfile(filepath):
+                continue
+            filename = os.path.basename(filepath)
+            with open(filepath, "rb") as f:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename={filename}")
+            msg.attach(part)
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, to.strip(), msg.as_string())
+        add_log("OK", f"Email sent to {to.strip()} — {subject}")
+        return True
+    except Exception as e:
+        add_log("ERROR", f"Email send failed — {e}")
+        return False
+
+
+# Inline email helper for generated template scripts (stdlib only)
+_EMAIL_HELPER_CODE = '''
+import os, smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+
+def _send_email(to, subject, body, attachments=None):
+    user = os.environ.get("GMAIL_USER", "")
+    pw = os.environ.get("GMAIL_APP_PASSWORD", "")
+    if not user or not pw or not to:
+        print(f"Email skipped — credentials not configured")
+        return False
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = user
+        msg["To"] = to
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+        for fp in (attachments or []):
+            if not os.path.isfile(fp):
+                continue
+            with open(fp, "rb") as f:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(fp)}")
+            msg.attach(part)
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(user, pw)
+            s.sendmail(user, to, msg.as_string())
+        print(f"Email sent to {to}")
+        return True
+    except Exception as e:
+        print(f"Email failed: {e}")
+        return False
+'''
 
 # ---------------------------------------------------------------------------
 # In-memory log buffer
@@ -409,6 +610,10 @@ def init_db():
             conn.execute("ALTER TABLE workers ADD COLUMN timeout_minutes INTEGER DEFAULT 0")
         if "env_vars" not in existing_cols:
             conn.execute("ALTER TABLE workers ADD COLUMN env_vars TEXT DEFAULT ''")
+        if "notify_email" not in existing_cols:
+            conn.execute("ALTER TABLE workers ADD COLUMN notify_email TEXT DEFAULT ''")
+        if "notify_on" not in existing_cols:
+            conn.execute("ALTER TABLE workers ADD COLUMN notify_on TEXT DEFAULT 'always'")
 
         # ── V2: task chains ────────────────────────────────────────────────
         conn.execute("""
@@ -439,6 +644,13 @@ def init_db():
             conn.execute("ALTER TABLE chain_steps ADD COLUMN stage INTEGER DEFAULT 0")
             # Each existing step gets its own stage so old chains stay sequential
             conn.execute("UPDATE chain_steps SET stage = order_index")
+
+        # Migrate chains table: add notification columns
+        existing_chain_cols = {row[1] for row in conn.execute("PRAGMA table_info(chains)")}
+        if "notify_email" not in existing_chain_cols:
+            conn.execute("ALTER TABLE chains ADD COLUMN notify_email TEXT DEFAULT ''")
+        if "notify_on" not in existing_chain_cols:
+            conn.execute("ALTER TABLE chains ADD COLUMN notify_on TEXT DEFAULT 'always'")
 
         # ── V2: run history (workers + chains share this table) ────────────
         conn.execute("""
@@ -610,6 +822,27 @@ def _task_runner(worker_id: int, task_path: str, output_dir: str,
         duration_ms = int((time.time() - t0) * 1000)
         _record_run(worker_id=worker_id, trigger_type=trigger_type,
                     success=success, duration_ms=duration_ms, error_msg=error_msg)
+        # --- Email notification ---
+        try:
+            with get_db() as conn:
+                w = conn.execute("SELECT name, notify_email, notify_on FROM workers WHERE id=?",
+                                 (worker_id,)).fetchone()
+            if w and w["notify_email"]:
+                should_send = (w["notify_on"] == "always"
+                               or (w["notify_on"] == "failure" and not success)
+                               or (w["notify_on"] == "success" and success))
+                if should_send:
+                    status_icon = "\u2713" if success else "\u2717"
+                    status_word = "completed" if success else "failed"
+                    dur_str = f"{duration_ms/1000:.1f}s" if duration_ms >= 1000 else f"{duration_ms}ms"
+                    body = f"Worker: {w['name']}\nStatus: {status_word.title()}\nDuration: {dur_str}\nTriggered: {trigger_type}"
+                    if error_msg:
+                        body += f"\n\nError:\n{error_msg[:2000]}"
+                    _send_email(w["notify_email"],
+                                f"[Redis Operator] {status_icon} \"{w['name']}\" {status_word}",
+                                body)
+        except Exception:
+            pass  # never crash on notification failure
 
 def register_worker_jobs(worker_id: int, task_path: str, sched_type: str,
                          sched_value: str, output_dir: str, paused: bool = False,
@@ -770,6 +1003,27 @@ def _chain_runner(chain_id: int, trigger_type: str = "scheduled"):
         add_log("ERROR", f"Chain '{name}' finished with errors in {duration_ms/1000:.1f}s")
     _record_run(chain_id=chain_id, trigger_type=trigger_type,
                 success=overall_success, duration_ms=duration_ms, error_msg=last_error)
+    # --- Email notification ---
+    try:
+        with get_db() as conn:
+            c = conn.execute("SELECT notify_email, notify_on FROM chains WHERE id=?",
+                             (chain_id,)).fetchone()
+        if c and c["notify_email"]:
+            should_send = (c["notify_on"] == "always"
+                           or (c["notify_on"] == "failure" and not overall_success)
+                           or (c["notify_on"] == "success" and overall_success))
+            if should_send:
+                status_icon = "\u2713" if overall_success else "\u2717"
+                status_word = "completed" if overall_success else "failed"
+                dur_str = f"{duration_ms/1000:.1f}s" if duration_ms >= 1000 else f"{duration_ms}ms"
+                body = f"Chain: {name}\nStatus: {status_word.title()}\nSteps: {total}\nDuration: {dur_str}\nTriggered: {trigger_type}"
+                if last_error:
+                    body += f"\n\nError:\n{last_error[:2000]}"
+                _send_email(c["notify_email"],
+                            f"[Redis Operator] {status_icon} \"{name}\" {status_word}",
+                            body)
+    except Exception:
+        pass
 
 def register_chain_jobs(chain_id: int, sched_type: str, sched_value: str,
                         paused: bool = False):
@@ -864,6 +1118,8 @@ def list_workers():
             "new_console": bool(r["new_console"]),
             "timeout_minutes": int(r["timeout_minutes"] or 0),
             "env_vars": r["env_vars"] or "",
+            "notify_email": r["notify_email"] or "",
+            "notify_on": r["notify_on"] or "always",
             "paused": bool(r["paused"]),
             "group_id": r["group_id"],
             "next_trigger": next_trigger,
@@ -912,6 +1168,8 @@ def add_workers():
         new_console = bool(w.get("new_console", False))
         timeout_minutes = int(w.get("timeout_minutes", 0) or 0)
         env_vars = w.get("env_vars", "").strip()
+        notify_email = w.get("notify_email", "").strip()
+        notify_on = w.get("notify_on", "always").strip()
 
         if not name or not task_path:
             errors.append(f"Worker missing name or task path: {w}")
@@ -923,8 +1181,8 @@ def add_workers():
 
         with get_db() as conn:
             cur = conn.execute(
-                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements, new_console, timeout_minutes, env_vars) VALUES (?,?,?,?,?,?,?,?,?)",
-                (name, task_path, sched_type, sched_value, output_dir, requirements, int(new_console), timeout_minutes, env_vars),
+                "INSERT INTO workers (name, task_path, sched_type, sched_value, output_dir, requirements, new_console, timeout_minutes, env_vars, notify_email, notify_on) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (name, task_path, sched_type, sched_value, output_dir, requirements, int(new_console), timeout_minutes, env_vars, notify_email, notify_on),
             )
             worker_id = cur.lastrowid
             conn.commit()
@@ -964,11 +1222,13 @@ def update_worker(worker_id):
     new_console = bool(data.get("new_console", bool(row["new_console"])))
     timeout_minutes = int(data.get("timeout_minutes", row["timeout_minutes"]) or 0)
     env_vars = data.get("env_vars", row["env_vars"] or "").strip()
+    notify_email = data.get("notify_email", row["notify_email"] or "").strip()
+    notify_on = data.get("notify_on", row["notify_on"] or "always").strip()
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=?, new_console=?, timeout_minutes=?, env_vars=? WHERE id=?",
-            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, int(new_console), timeout_minutes, env_vars, worker_id),
+            "UPDATE workers SET name=?, task_path=?, sched_type=?, sched_value=?, output_dir=?, group_id=?, requirements=?, new_console=?, timeout_minutes=?, env_vars=?, notify_email=?, notify_on=? WHERE id=?",
+            (name, task_path, sched_type, sched_value, output_dir, group_id, requirements, int(new_console), timeout_minutes, env_vars, notify_email, notify_on, worker_id),
         )
         conn.commit()
 
@@ -1258,6 +1518,8 @@ def list_chains():
             "sched_type": c["sched_type"],
             "sched_value": c["sched_value"],
             "stop_on_failure": bool(c["stop_on_failure"]),
+            "notify_email": c["notify_email"] or "",
+            "notify_on": c["notify_on"] or "always",
             "paused": bool(c["paused"]),
             "group_id": c["group_id"],
             "steps": steps_by_chain.get(cid, []),
@@ -1276,6 +1538,8 @@ def add_chain():
     sched_type = data.get("sched_type", "interval")
     sched_value = data.get("sched_value", "1h").strip()
     stop_on_failure = int(data.get("stop_on_failure", True))
+    notify_email = data.get("notify_email", "").strip()
+    notify_on = data.get("notify_on", "always").strip()
     steps = data.get("steps", [])
 
     if not name:
@@ -1285,8 +1549,8 @@ def add_chain():
 
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO chains (name, sched_type, sched_value, stop_on_failure) VALUES (?,?,?,?)",
-            (name, sched_type, sched_value, stop_on_failure),
+            "INSERT INTO chains (name, sched_type, sched_value, stop_on_failure, notify_email, notify_on) VALUES (?,?,?,?,?,?)",
+            (name, sched_type, sched_value, stop_on_failure, notify_email, notify_on),
         )
         chain_id = cur.lastrowid
         for i, step in enumerate(steps):
@@ -1318,6 +1582,8 @@ def update_chain(chain_id):
     sched_type = data.get("sched_type", row["sched_type"])
     sched_value = data.get("sched_value", row["sched_value"]).strip()
     stop_on_failure = int(data.get("stop_on_failure", row["stop_on_failure"]))
+    notify_email = data.get("notify_email", row["notify_email"] or "").strip()
+    notify_on = data.get("notify_on", row["notify_on"] or "always").strip()
     steps = data.get("steps", [])
 
     if not name:
@@ -1327,8 +1593,8 @@ def update_chain(chain_id):
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE chains SET name=?, sched_type=?, sched_value=?, stop_on_failure=?, group_id=? WHERE id=?",
-            (name, sched_type, sched_value, stop_on_failure, group_id, chain_id),
+            "UPDATE chains SET name=?, sched_type=?, sched_value=?, stop_on_failure=?, group_id=?, notify_email=?, notify_on=? WHERE id=?",
+            (name, sched_type, sched_value, stop_on_failure, group_id, notify_email, notify_on, chain_id),
         )
         conn.execute("DELETE FROM chain_steps WHERE chain_id=?", (chain_id,))
         for i, step in enumerate(steps):
@@ -1409,6 +1675,28 @@ def get_chain_history(chain_id):
             "SELECT COUNT(*) FROM run_history WHERE chain_id=?", (chain_id,)
         ).fetchone()[0]
     return jsonify({"rows": [dict(r) for r in rows], "total": total, "offset": offset, "limit": limit})
+
+# --- Email Settings ---
+@app.route("/api/email-settings", methods=["GET"])
+def get_email_settings():
+    gmail_user = os.environ.get("GMAIL_USER", "").strip()
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    return jsonify({
+        "has_credentials": bool(gmail_user and gmail_pass),
+        "email": gmail_user,
+    })
+
+@app.route("/api/email-settings", methods=["POST"])
+def save_email_settings():
+    data = request.get_json()
+    email = (data.get("email") or "").strip()
+    password = (data.get("password") or "").strip()
+    if not email or not password:
+        return jsonify({"error": "Email and app password required"}), 400
+    _save_env_key("GMAIL_USER", email)
+    _save_env_key("GMAIL_APP_PASSWORD", password)
+    add_log("INFO", f"Email settings saved ({email}).")
+    return jsonify({"ok": True})
 
 # --- AI Analysis ---
 @app.route("/api/api-key-status", methods=["GET"])
@@ -1517,6 +1805,8 @@ def export_data():
                 "new_console":     bool(w["new_console"]),
                 "timeout_minutes": int(w["timeout_minutes"] or 0),
                 "env_vars":        w["env_vars"] or "",
+                "notify_email":    w["notify_email"] or "",
+                "notify_on":       w["notify_on"] or "always",
                 "group_name":      group_map.get(w["group_id"]) if w["group_id"] else None,
                 "paused":          bool(w["paused"]),
             }
@@ -1528,6 +1818,8 @@ def export_data():
                 "sched_type":      c["sched_type"],
                 "sched_value":     c["sched_value"],
                 "stop_on_failure": bool(c["stop_on_failure"]),
+                "notify_email":    c["notify_email"] or "",
+                "notify_on":       c["notify_on"] or "always",
                 "paused":          bool(c["paused"]),
                 "group_name":      group_map.get(c["group_id"]) if c["group_id"] else None,
                 "steps":           steps_by_chain.get(c["id"], []),
@@ -1589,16 +1881,18 @@ def import_data():
         new_console     = int(bool(w.get("new_console", False)))
         timeout_minutes = int(w.get("timeout_minutes", 0) or 0)
         env_vars        = w.get("env_vars", "")
+        notify_email    = w.get("notify_email", "")
+        notify_on       = w.get("notify_on", "always")
         paused          = int(bool(w.get("paused", False)))
         group_id        = group_name_to_id.get(w.get("group_name")) if w.get("group_name") else None
         with get_db() as conn:
             cur = conn.execute(
                 """INSERT INTO workers
                    (name, task_path, sched_type, sched_value, output_dir, requirements,
-                    new_console, timeout_minutes, env_vars, group_id, paused)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    new_console, timeout_minutes, env_vars, notify_email, notify_on, group_id, paused)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (name, task_path, sched_type, sched_value, output_dir, requirements,
-                 new_console, timeout_minutes, env_vars, group_id, paused),
+                 new_console, timeout_minutes, env_vars, notify_email, notify_on, group_id, paused),
             )
             worker_id = cur.lastrowid
             conn.commit()
@@ -1622,14 +1916,16 @@ def import_data():
         sched_type      = c.get("sched_type", "interval")
         sched_value     = c.get("sched_value", "1h")
         stop_on_failure = int(bool(c.get("stop_on_failure", True)))
+        notify_email    = c.get("notify_email", "")
+        notify_on       = c.get("notify_on", "always")
         paused          = int(bool(c.get("paused", False)))
         group_id        = group_name_to_id.get(c.get("group_name")) if c.get("group_name") else None
         steps           = c.get("steps", [])
         with get_db() as conn:
             cur = conn.execute(
-                """INSERT INTO chains (name, sched_type, sched_value, stop_on_failure, paused, group_id)
-                   VALUES (?,?,?,?,?,?)""",
-                (name, sched_type, sched_value, stop_on_failure, paused, group_id),
+                """INSERT INTO chains (name, sched_type, sched_value, stop_on_failure, notify_email, notify_on, paused, group_id)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (name, sched_type, sched_value, stop_on_failure, notify_email, notify_on, paused, group_id),
             )
             chain_id = cur.lastrowid
             for i, step in enumerate(steps):

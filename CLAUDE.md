@@ -53,7 +53,22 @@ Built-in script generators that create stdlib-only Python scripts:
 - `uptime_check` — config: url, log_file
 - `open_url` — config: url
 
-**Known issue:** Generated scripts lack a `if __name__ == "__main__"` guard, so they won't execute if run directly from terminal. They work fine when Redis Operator calls `run()` directly.
+**Note:** Generated scripts now include `if __name__ == "__main__"` guards and work correctly as subprocesses.
+
+### Email & Notifications
+Two systems:
+
+**Global email settings** — Gmail credentials stored in `.env` (GMAIL_USER, GMAIL_APP_PASSWORD). Configured once via the 📧 Email button in the header. Used by all templates and notifications.
+
+**Per-worker/chain notifications** — `notify_email` and `notify_on` fields on workers and chains. After each run, if notify_email is set and the condition matches (always/failure/success), an email is sent with status, duration, and error details.
+
+**Template email capabilities:**
+- `folder_watcher` — per-rule email_to field: email files when found, move to folder, or both
+- `uptime_check` — alert_email: sends email when site is DOWN
+- `folder_backup` — summary_email: sends "backup complete" confirmation
+- `file_cleanup` — summary_email: sends "N files removed" summary
+- `run_and_email` — NEW template: runs a script then emails the output file
+- `open_url` — no email (nothing to email)
 
 ### Run history
 Each run writes a row to run_history: triggered_at, trigger_type (scheduled/manual), success (bool), duration_ms, error_msg. Last 10 runs available per worker/chain via API.
@@ -81,20 +96,18 @@ Always set `new_console: true` for scripts that open a browser, GUI, or need use
 ### Debugging with new_console
 When `new_console: true`, stdout/stderr are NOT captured — error_msg will just say "exit code 1" with no details. To debug: temporarily set `new_console: false`, run the worker, check the error in history, fix it, then set `new_console` back to `true`.
 
-### Email automation pattern
-For "run script then email the output" workflows, create a wrapper script that:
-1. Runs the main script via `subprocess.run()`
-2. Locates the output file
-3. Sends it via `smtplib.SMTP_SSL("smtp.gmail.com", 465)` using a Gmail App Password
+### Email automation — built-in
+Redis Operator has built-in email support. No wrapper scripts needed:
 
-Store credentials as env_vars on the worker (not hardcoded in the script):
-```
-GMAIL_USER=user@gmail.com
-GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
-EMAIL_TO=recipient@gmail.com
-```
+**For "run script then email the output"** — use the **Run + Email** template. Configure script path, output file, and recipient. Redis Operator generates and manages the script.
 
-Gmail App Passwords require 2-Step Verification enabled on the Google account. Generate at https://myaccount.google.com/apppasswords.
+**For "email me when a worker fails"** — set `notify_email` and `notify_on: "failure"` on the worker. No template needed.
+
+**For "email files when they appear"** — use the **Folder Watcher** template with `email_to` on rules.
+
+**For "alert me when a site goes down"** — use the **Uptime Check** template with `alert_email`.
+
+All email features require global email settings configured first (📧 button in header). Gmail App Passwords require 2-Step Verification. Generate at https://myaccount.google.com/apppasswords.
 
 ### Common dependency issues
 If a script fails with `ModuleNotFoundError`, Redis Operator auto-retries once after pip-installing the missing module. But for `new_console: true` workers, the auto-install won't trigger (no stderr captured). Pre-install dependencies or use the `requirements` field on the worker.

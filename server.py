@@ -49,7 +49,9 @@ TOOLS = [
                 "requirements": {"type": "string", "description": "Comma-separated pip packages to install", "default": ""},
                 "timeout_minutes": {"type": "integer", "default": 0},
                 "env_vars": {"type": "string", "description": "KEY=VALUE lines injected into subprocess env", "default": ""},
-                "new_console": {"type": "boolean", "default": False}
+                "new_console": {"type": "boolean", "default": False},
+                "notify_email": {"type": "string", "description": "Email address for run notifications (optional)", "default": ""},
+                "notify_on": {"type": "string", "enum": ["always", "failure", "success"], "default": "always", "description": "When to send notification: always, failure, or success"}
             }
         }
     },
@@ -70,7 +72,9 @@ TOOLS = [
                 "timeout_minutes": {"type": "integer"},
                 "env_vars": {"type": "string"},
                 "new_console": {"type": "boolean"},
-                "group_id": {"type": "integer"}
+                "group_id": {"type": "integer"},
+                "notify_email": {"type": "string", "description": "Email address for run notifications"},
+                "notify_on": {"type": "string", "enum": ["always", "failure", "success"]}
             }
         }
     },
@@ -136,6 +140,8 @@ TOOLS = [
                 "sched_type": {"type": "string", "enum": ["fixed", "interval", "cron"]},
                 "sched_value": {"type": "string"},
                 "stop_on_failure": {"type": "boolean", "default": True},
+                "notify_email": {"type": "string", "description": "Email address for run notifications (optional)", "default": ""},
+                "notify_on": {"type": "string", "enum": ["always", "failure", "success"], "default": "always"},
                 "steps": {
                     "type": "array",
                     "description": "List of steps. Each step needs task_path and stage. Same stage = parallel execution.",

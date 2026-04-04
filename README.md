@@ -12,7 +12,7 @@ Conductor registers itself as an MCP server in Claude Desktop on first launch. A
 
 **Example conversation:**
 
-> **You:** Run my metrics script every night at 8:30 PM and email me the report at jarmstrong158@gmail.com
+> **You:** Run my metrics script every night at 8:30 PM and email me the report
 >
 > **Claude:** I'll set that up using the Run + Email template.
 > *(creates the worker, configures the schedule, wires up Gmail, fires it to test)*

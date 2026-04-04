@@ -209,12 +209,12 @@ TOOLS = [
     },
     {
         "name": "create_worker_from_template",
-        "description": "Create a worker using a built-in template. Template types: folder_backup (source, dest, keep), file_cleanup (folder, pattern, days), folder_watcher (watch, rules as [{ext, dest}]), uptime_check (url, log_file), open_url (url). Generated scripts use stdlib only.",
+        "description": "Create a worker using a built-in template. Template types: folder_backup (source, dest, keep, summary_email), file_cleanup (folder, pattern, days, summary_email), folder_watcher (watch, rules as [{ext, dest, email_to}]), uptime_check (url, log_file, alert_email), open_url (url), run_and_email (script_path, output_file, email_to). Generated scripts use stdlib only.",
         "inputSchema": {
             "type": "object",
             "required": ["template_type", "name", "sched_type", "sched_value", "config"],
             "properties": {
-                "template_type": {"type": "string", "enum": ["folder_backup", "file_cleanup", "folder_watcher", "uptime_check", "open_url"]},
+                "template_type": {"type": "string", "enum": ["folder_backup", "file_cleanup", "folder_watcher", "uptime_check", "open_url", "run_and_email"]},
                 "name": {"type": "string"},
                 "sched_type": {"type": "string", "enum": ["fixed", "interval", "cron"]},
                 "sched_value": {"type": "string"},
@@ -284,7 +284,8 @@ def handle_tool(name: str, args: dict) -> str:
     elif name == "delete_group":
         return json.dumps(api("DELETE", f"/api/groups/{args['group_id']}"), indent=2)
     elif name == "create_worker_from_template":
-        return json.dumps(api("POST", "/api/templates", args), indent=2)
+        body = {**args, "worker_name": args.pop("name", "")}
+        return json.dumps(api("POST", "/api/templates", body), indent=2)
     elif name == "export_all":
         return json.dumps(api("GET", "/api/export"), indent=2)
     elif name == "get_logs":

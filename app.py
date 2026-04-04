@@ -1390,10 +1390,17 @@ def create_from_template():
     script_path = TEMPLATES_DIR / f"{safe_name}_{template_type}.py"
     script_path.write_text(script_content, encoding="utf-8")
 
+    # Inject global email credentials if the template uses email
+    env_vars = ""
+    gmail_user = os.environ.get("GMAIL_USER", "").strip()
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    if gmail_user and gmail_pass:
+        env_vars = f"GMAIL_USER={gmail_user}\nGMAIL_APP_PASSWORD={gmail_pass}"
+
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO workers (name, task_path, sched_type, sched_value) VALUES (?,?,?,?)",
-            (worker_name, str(script_path), sched_type, sched_value),
+            "INSERT INTO workers (name, task_path, sched_type, sched_value, env_vars) VALUES (?,?,?,?,?)",
+            (worker_name, str(script_path), sched_type, sched_value, env_vars),
         )
         worker_id = cur.lastrowid
         conn.commit()

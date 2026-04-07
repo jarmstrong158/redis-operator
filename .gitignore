@@ -17,3 +17,5 @@ redis_bundled/
 .idea/
 .vscode/
 *.log
+dump.rdb
+templates/generated/

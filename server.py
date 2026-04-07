@@ -244,6 +244,23 @@ TOOLS = [
         "name": "check_for_update",
         "description": "Check GitHub for a newer version of Conductor.",
         "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "get_email_settings",
+        "description": "Check if email credentials are configured. Returns has_credentials (bool) and the sender email address. Use this before any email-related operation to verify setup. If not configured, prompt the user for their Gmail address and App Password.",
+        "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "save_email_settings",
+        "description": "Save Gmail credentials for email notifications and templates. Requires a Gmail address and a Gmail App Password (not the regular password). The user must have 2-Step Verification enabled on their Google account first, then generate an App Password at myaccount.google.com/apppasswords.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["email", "password"],
+            "properties": {
+                "email": {"type": "string", "description": "Gmail address (e.g. user@gmail.com)"},
+                "password": {"type": "string", "description": "Gmail App Password (16-character code from myaccount.google.com/apppasswords)"}
+            }
+        }
     }
 ]
 
@@ -295,6 +312,10 @@ def handle_tool(name: str, args: dict) -> str:
         return json.dumps(api("GET", "/api/redis-status"), indent=2)
     elif name == "check_for_update":
         return json.dumps(api("GET", "/api/update-check"), indent=2)
+    elif name == "get_email_settings":
+        return json.dumps(api("GET", "/api/email-settings"), indent=2)
+    elif name == "save_email_settings":
+        return json.dumps(api("POST", "/api/email-settings", args), indent=2)
     else:
         return json.dumps({"error": f"Unknown tool: {name}"})
 

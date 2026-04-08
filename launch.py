@@ -160,6 +160,22 @@ def main():
     print("=" * 50)
     print(f"  Starting server at {URL} ...")
 
+    # Check if Conductor is already running
+    import socket
+    already_running = False
+    try:
+        s = socket.create_connection((HOST, PORT), timeout=1)
+        s.close()
+        already_running = True
+    except OSError:
+        pass
+
+    if already_running:
+        print(f"  Conductor is already running at {URL}.")
+        print(f"  Opening dashboard...")
+        webbrowser.open(URL)
+        sys.exit(0)
+
     # Run Flask in a background thread
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()

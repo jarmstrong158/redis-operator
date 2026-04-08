@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conductor-mcp"
+version = "0.1.0"
+description = "A local task scheduler with worker management, accessible via MCP (Model Context Protocol) for Claude Desktop"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    { name = "Jonathan Armstrong", email = "jarmstrong158@users.noreply.github.com" },
+]
+keywords = ["mcp", "task-scheduler", "automation", "claude", "model-context-protocol", "apscheduler"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: Flask",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "flask>=3.0.0",
+    "apscheduler>=3.10.0",
+    "redis>=5.0.0",
+    "SQLAlchemy>=2.0.0",
+    "tzlocal>=5.0",
+    "anthropic>=0.40.0",
+    "pystray>=0.19.0",
+    "Pillow>=10.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jarmstrong158/Conductor"
+Repository = "https://github.com/jarmstrong158/Conductor"
+Issues = "https://github.com/jarmstrong158/Conductor/issues"
+
+[project.scripts]
+conductor-mcp = "launch:main"
+
+[tool.setuptools]
+py-modules = ["launch", "app", "server", "build_icon", "download_redis", "run_inno"]
+
+[tool.setuptools.package-data]
+"*" = ["static/**/*", "templates/**/*", "tasks/**/*"]

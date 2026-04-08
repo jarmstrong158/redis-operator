@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jarmstrong158/Conductor",
+  "description": "Local task scheduler and worker manager with MCP integration for Claude Desktop.",
+  "repository": {
+    "url": "https://github.com/jarmstrong158/Conductor",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "conductor-mcpserver",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Gmail address for sending email notifications",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "GMAIL_USER"
+        },
+        {
+          "description": "Gmail App Password for sending email notifications",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "GMAIL_APP_PASSWORD"
+        }
+      ]
+    }
+  ]
+}

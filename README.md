@@ -1,3 +1,6 @@
+[![Tests](https://github.com/jarmstrong158/Conductor/actions/workflows/tests.yml/badge.svg)](https://github.com/jarmstrong158/Conductor/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 # Conductor
 
 **Tell Claude what to automate. It handles the rest.**

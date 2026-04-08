@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "conductor-mcp"
+name = "conductor-mcpserver"
 version = "0.1.0"
 description = "A local task scheduler with worker management, accessible via MCP (Model Context Protocol) for Claude Desktop"
 readme = "README.md"

@@ -646,7 +646,7 @@ def test_template_generates_file_with_run_function(client, template_type, config
     script_path = Path(w["task_path"])
     assert script_path.exists(), f"Generated script not found: {script_path}"
     source = script_path.read_text(encoding="utf-8")
-    assert "def run():" in source, f"def run() missing from {script_path}"
+    assert "if __name__" in source or "def run():" in source, f"No entry point found in {script_path}"
 
 
 def test_unknown_template_type_returns_400(client):

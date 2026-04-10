@@ -10,6 +10,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -17,9 +18,11 @@ from typing import Any
 
 BASE_URL = "http://127.0.0.1:5000"
 EXE_PATH = os.path.join(os.environ.get("APPDATA", ""), "Redis Operator", "Conductor.exe")
+LAUNCH_LOCK_PATH = os.path.join(tempfile.gettempdir(), "conductor_mcp_launch.lock")
 
 
 def _is_conductor_running() -> bool:
+    """Check if Conductor is listening on port 5000."""
     try:
         s = socket.create_connection(("127.0.0.1", 5000), timeout=2)
         s.close()
@@ -28,22 +31,77 @@ def _is_conductor_running() -> bool:
         return False
 
 
+def _conductor_process_exists() -> bool:
+    """Check if any Conductor.exe process is running (not just port-bound).
+    Prevents launching a second instance while the first is still starting."""
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq Conductor.exe", "/NH"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return "Conductor.exe" in result.stdout
+    except Exception:
+        return False
+
+
 def _ensure_conductor():
-    """Start the Conductor exe if it's not already running."""
+    """Start the Conductor exe if it's not already running.
+    Uses a file lock to prevent races between concurrent MCP tool calls."""
     if _is_conductor_running():
         return
     if not os.path.exists(EXE_PATH):
         return  # exe not installed, can't auto-start
-    subprocess.Popen(
-        [EXE_PATH],
-        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
-        close_fds=True,
-    )
-    # Wait up to 15 seconds for it to come up
-    for _ in range(30):
-        time.sleep(0.5)
-        if _is_conductor_running():
+
+    # Check if another process already launched Conductor (it may still be starting)
+    if _conductor_process_exists():
+        # Wait for the port to come up
+        for _ in range(30):
+            time.sleep(0.5)
+            if _is_conductor_running():
+                return
+        return  # Gave up waiting; don't launch a duplicate
+
+    # Acquire launch lock — only one MCP call should launch at a time
+    lock_fd = None
+    try:
+        # Atomic lock file creation
+        lock_fd = os.open(LAUNCH_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        # Another MCP process is already launching — wait for it
+        for _ in range(30):
+            time.sleep(0.5)
+            if _is_conductor_running():
+                return
+        # Stale lock? Clean it up and bail
+        try:
+            os.remove(LAUNCH_LOCK_PATH)
+        except Exception:
+            pass
+        return
+
+    try:
+        # Double-check now that we have the lock
+        if _is_conductor_running() or _conductor_process_exists():
             return
+
+        subprocess.Popen(
+            [EXE_PATH],
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+            close_fds=True,
+        )
+        # Wait up to 15 seconds for it to come up
+        for _ in range(30):
+            time.sleep(0.5)
+            if _is_conductor_running():
+                return
+    finally:
+        if lock_fd is not None:
+            try:
+                os.close(lock_fd)
+                os.remove(LAUNCH_LOCK_PATH)
+            except Exception:
+                pass
 
 
 def api(method: str, path: str, body: dict = None) -> Any:

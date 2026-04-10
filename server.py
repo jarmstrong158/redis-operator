@@ -6,14 +6,48 @@ Run alongside Conductor: python server.py
 """
 
 import json
+import os
+import socket
+import subprocess
 import sys
+import time
 import urllib.request
 import urllib.error
 from typing import Any
 
 BASE_URL = "http://127.0.0.1:5000"
+EXE_PATH = os.path.join(os.environ.get("APPDATA", ""), "Redis Operator", "Conductor.exe")
+
+
+def _is_conductor_running() -> bool:
+    try:
+        s = socket.create_connection(("127.0.0.1", 5000), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+def _ensure_conductor():
+    """Start the Conductor exe if it's not already running."""
+    if _is_conductor_running():
+        return
+    if not os.path.exists(EXE_PATH):
+        return  # exe not installed, can't auto-start
+    subprocess.Popen(
+        [EXE_PATH],
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+        close_fds=True,
+    )
+    # Wait up to 15 seconds for it to come up
+    for _ in range(30):
+        time.sleep(0.5)
+        if _is_conductor_running():
+            return
+
 
 def api(method: str, path: str, body: dict = None) -> Any:
+    _ensure_conductor()
     url = f"{BASE_URL}{path}"
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(

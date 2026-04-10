@@ -2,6 +2,8 @@
 
 Conductor is a local web dashboard for managing scheduled Python and batch workers via Redis + APScheduler. It runs at http://127.0.0.1:5000 and exposes a REST API that this MCP server wraps.
 
+The MCP server auto-launches the installed Conductor.exe from %APPDATA%/Redis Operator/ if it's not already running. Never run Conductor from source — always use the exe.
+
 ## What it does
 
 Users register scripts (.py, .bat, .sh, .cmd) and give them a schedule. Conductor fires them on time, logs the results, and shows everything in a browser dashboard. No terminal needed after launch.

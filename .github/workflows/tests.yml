@@ -9,6 +9,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,4 +34,6 @@ jobs:
           pip install pytest
 
       - name: Run tests
-        run: pytest -v --tb=short
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: pytest test_api.py tests/test_scheduler.py -v --tb=short
